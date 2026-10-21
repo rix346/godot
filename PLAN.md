@@ -10,6 +10,9 @@ Every level-up pauses the game and offers 3 cards (passives or active skills).
 - Floor clears -> stairs -> deeper floor with tougher enemies
 
 ## Day 2 (Wed 21st): content and feel
+- ✅ Card rarity (common/rare/epic), 16 cards total incl. Stone Skin and Chain Lightning skills
+- ✅ New enemies: Bat (moves twice), Archer (shoots in straight lines), Brute (slow, hits hard)
+- ✅ Floating damage numbers, attack lunge, projectile/spell lines
 - Art: swap coloured squares for a CC0 tileset (e.g. Kenney 1-bit pack)
 - Enemy variety: ranged attacker, slow heavy hitter, fast double-mover
 - Card rarity (common/rare/epic) and 6-10 more cards, incl. synergies
