@@ -12,6 +12,14 @@ var attack := 2
 var color := Color.WHITE
 var glyph := "?"
 var display_name := "Unit"
+var texture: Texture2D  # drawn instead of the coloured square when set
+
+
+## Loads res://art/<name>.png if it exists (e.g. "player" -> art/player.png).
+func load_art(art_name: String) -> void:
+	var path := "res://art/%s.png" % art_name.to_lower()
+	if ResourceLoader.exists(path):
+		texture = load(path)
 
 
 func place(cell: Vector2i) -> void:
@@ -81,8 +89,11 @@ func _flash() -> void:
 
 
 func _draw() -> void:
-	draw_rect(Rect2(Vector2(3, 3), Vector2(TILE - 6, TILE - 6)), color)
-	draw_string(ThemeDB.fallback_font, Vector2(3, 22), glyph, HORIZONTAL_ALIGNMENT_CENTER, TILE - 6, 16, Color.BLACK)
+	if texture:
+		draw_texture_rect(texture, Rect2(Vector2.ZERO, Vector2(TILE, TILE)), false)
+	else:
+		draw_rect(Rect2(Vector2(3, 3), Vector2(TILE - 6, TILE - 6)), color)
+		draw_string(ThemeDB.fallback_font, Vector2(3, 22), glyph, HORIZONTAL_ALIGNMENT_CENTER, TILE - 6, 16, Color.BLACK)
 	# HP bar along the bottom edge.
 	var frac := float(hp) / max_hp
 	draw_rect(Rect2(Vector2(3, TILE - 5), Vector2(TILE - 6, 3)), Color(0.25, 0, 0))
