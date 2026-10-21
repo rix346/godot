@@ -31,6 +31,9 @@ var log_lines: Array[String] = []
 
 var _hud: Label
 var _level_ui: LevelUpUI
+var _floor_tex := _load_art("floor")
+var _wall_tex := _load_art("wall")
+var _stairs_tex := _load_art("stairs")
 
 
 func _ready() -> void:
@@ -91,11 +94,25 @@ func _draw() -> void:
 	for x in W:
 		for y in H:
 			var c := Vector2i(x, y)
-			var col := Color(0.16, 0.16, 0.2) if floor_cells.has(c) else Color(0.05, 0.05, 0.07)
-			draw_rect(Rect2(Vector2(c * TILE), Vector2(TILE - 1, TILE - 1)), col)
+			var is_floor := floor_cells.has(c)
+			var tex := _floor_tex if is_floor else _wall_tex
+			if tex:
+				draw_texture_rect(tex, Rect2(Vector2(c * TILE), Vector2(TILE, TILE)), false)
+			else:
+				var col := Color(0.16, 0.16, 0.2) if is_floor else Color(0.05, 0.05, 0.07)
+				draw_rect(Rect2(Vector2(c * TILE), Vector2(TILE - 1, TILE - 1)), col)
 	if stairs.x >= 0:
-		draw_rect(Rect2(Vector2(stairs * TILE) + Vector2(4, 4), Vector2(TILE - 8, TILE - 8)), Color(0.95, 0.8, 0.2))
-		draw_string(ThemeDB.fallback_font, Vector2(stairs * TILE) + Vector2(4, 22), ">", HORIZONTAL_ALIGNMENT_CENTER, TILE - 8, 16, Color.BLACK)
+		if _stairs_tex:
+			draw_texture_rect(_stairs_tex, Rect2(Vector2(stairs * TILE), Vector2(TILE, TILE)), false)
+		else:
+			draw_rect(Rect2(Vector2(stairs * TILE) + Vector2(4, 4), Vector2(TILE - 8, TILE - 8)), Color(0.95, 0.8, 0.2))
+			draw_string(ThemeDB.fallback_font, Vector2(stairs * TILE) + Vector2(4, 22), ">", HORIZONTAL_ALIGNMENT_CENTER, TILE - 8, 16, Color.BLACK)
+
+
+## res://art/<art_name>.png, or null so the caller falls back to plain colours.
+func _load_art(art_name: String) -> Texture2D:
+	var path := "res://art/%s.png" % art_name
+	return load(path) if ResourceLoader.exists(path) else null
 
 
 # --- Input & turn loop -------------------------------------------------------
