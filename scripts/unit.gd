@@ -72,7 +72,7 @@ func bump(dir: Vector2i) -> void:
 ## Floating text above the unit. Parented to our parent so it outlives us.
 func popup(text: String, col: Color) -> void:
 	var parent := get_parent()
-	if parent == null:
+	if parent == null or not visible:  # no hints from enemies hidden in the fog
 		return
 	var l := Label.new()
 	l.text = text
