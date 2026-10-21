@@ -14,6 +14,11 @@ var thorns := 0
 var crit_chance := 0.0
 var regen_every := 0  # 0 = no regen
 var regen_counter := 0
+var xp_mult := 1.0
+var armor := 0
+var berserk := 0.0  # bonus damage multiplier while below half HP
+var kill_heal := 0
+var shield_turns := 0  # Stone Skin: enemy turns left with all damage blocked
 
 var card_stacks := {}  # card id -> times picked
 var skills: Array[Dictionary] = []  # {id, name, cooldown, ready_in}
@@ -29,7 +34,7 @@ func _init() -> void:
 
 
 func gain_xp(amount: int) -> void:
-	xp += amount
+	xp += ceili(amount * xp_mult)
 	while xp >= xp_to_next:
 		xp -= xp_to_next
 		level += 1
@@ -54,3 +59,9 @@ func end_turn() -> void:
 		if regen_counter >= regen_every:
 			regen_counter = 0
 			heal(1)
+
+
+func _draw() -> void:
+	super()
+	if shield_turns > 0:
+		draw_arc(Vector2(TILE, TILE) / 2, TILE / 2 - 1, 0, TAU, 24, Color(0.6, 0.85, 1), 2)
