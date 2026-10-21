@@ -13,6 +13,7 @@ var color := Color.WHITE
 var glyph := "?"
 var display_name := "Unit"
 var texture: Texture2D  # drawn instead of the coloured square when set
+var _motion: Tween
 
 
 ## Loads res://art/<name>.png if it exists (e.g. "player" -> art/player.png).
@@ -24,13 +25,23 @@ func load_art(art_name: String) -> void:
 
 func place(cell: Vector2i) -> void:
 	grid_pos = cell
+	if _motion:
+		_motion.kill()
 	position = Vector2(cell * TILE)
 
 
 func move_to(cell: Vector2i) -> void:
 	grid_pos = cell
-	var tw := create_tween()
-	tw.tween_property(self, "position", Vector2(cell * TILE), 0.08)
+	_new_motion().tween_property(self, "position", Vector2(cell * TILE), 0.08)
+
+
+## Stops any running move/lunge animation so it can't drag the unit back to
+## an old cell (e.g. the stairs after a new floor), and starts a fresh tween.
+func _new_motion() -> Tween:
+	if _motion:
+		_motion.kill()
+	_motion = create_tween()
+	return _motion
 
 
 func take_damage(amount: int) -> void:
@@ -53,7 +64,7 @@ func heal(amount: int) -> void:
 ## Quick lunge toward `dir` and back, used for melee attacks.
 func bump(dir: Vector2i) -> void:
 	var base := Vector2(grid_pos * TILE)
-	var tw := create_tween()
+	var tw := _new_motion()
 	tw.tween_property(self, "position", base + Vector2(dir) * 8, 0.05)
 	tw.tween_property(self, "position", base, 0.07)
 
