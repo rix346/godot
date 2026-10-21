@@ -19,6 +19,7 @@ Every level-up pauses the game and offers 3 cards (passives or active skills).
 - Hit/move animations, damage numbers, basic sound effects
 
 ## Day 3 (Thu 22nd): dungeon and progression
+- ✅ Rooms + corridors generation, fog of war (sight radius 7, explored tiles dimmed)
 - Rooms + corridors generation, field of view / fog of war
 - Boss floor every 3 depths, pickups (potions, gold)
 - Win condition (e.g. beat the depth-9 boss)
