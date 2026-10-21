@@ -15,6 +15,7 @@ const H := 18
 const TILE := Unit.TILE
 const DIRS := [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]
 const FIREBALL_RANGE := 6
+const CHAIN_JUMP_RANGE := 3
 
 enum State { PLAYER_TURN, LEVEL_UP, DEAD }
 
@@ -151,6 +152,9 @@ func _end_player_turn() -> void:
 	if state == State.DEAD:
 		_refresh_hud()
 		return
+	if player.shield_turns > 0:
+		player.shield_turns -= 1
+		player.queue_redraw()
 	turn += 1
 	_check_level_up()
 	_refresh_hud()
@@ -160,15 +164,25 @@ func _run_enemies() -> void:
 	for e in enemies.duplicate():
 		if state == State.DEAD:
 			return
-		if not is_instance_valid(e) or not e.is_alive():
+		if not is_instance_valid(e) or not e.is_alive() or e.tick_rest():
 			continue
-		var d := _dist(e.grid_pos, player.grid_pos)
-		if d == 1:
-			_attack(e, player)
-		elif d <= Enemy.AGGRO_RANGE:
-			var path := astar.get_id_path(e.grid_pos, player.grid_pos)
-			if path.size() > 1 and not _enemy_at(path[1]) and path[1] != player.grid_pos:
-				e.move_to(path[1])
+		for i in e.actions:
+			if state == State.DEAD or not e.is_alive():
+				break
+			_enemy_act(e)
+
+
+func _enemy_act(e) -> void:
+	var d := _dist(e.grid_pos, player.grid_pos)
+	if d == 1:
+		_attack(e, player)
+	elif d <= e.attack_range and _clear_line(e.grid_pos, player.grid_pos):
+		_zap(e.grid_pos, player.grid_pos, Color(1, 0.9, 0.5))
+		_attack(e, player, true)
+	elif d <= Enemy.AGGRO_RANGE:
+		var path := astar.get_id_path(e.grid_pos, player.grid_pos)
+		if path.size() > 1 and not _enemy_at(path[1]) and path[1] != player.grid_pos:
+			e.move_to(path[1])
 
 
 func _check_level_up() -> void:
@@ -193,18 +207,37 @@ func _on_card_chosen(card: Dictionary) -> void:
 
 # --- Combat ------------------------------------------------------------------
 
-func _attack(attacker, defender) -> void:
-	var dmg: int = attacker.attack
-	var crit: bool = attacker == player and randf() < player.crit_chance
-	if crit:
-		dmg *= 2
-	_log("%s hit %s for %d%s." % [attacker.display_name, defender.display_name, dmg, " (crit!)" if crit else ""])
-	defender.take_damage(dmg)
+## `ranged` attacks skip the lunge animation and don't trigger Thorns.
+func _attack(attacker, defender, ranged := false) -> void:
+	_hit(attacker, defender, attacker.attack, "shot" if ranged else "hit")
+	if not ranged:
+		attacker.bump(defender.grid_pos - attacker.grid_pos)
 	if attacker == player and player.lifesteal > 0:
 		player.heal(player.lifesteal)
-	if defender == player and player.thorns > 0 and attacker.is_alive():
+	if defender == player and player.thorns > 0 and not ranged and attacker.is_alive():
 		_log("Thorns hit %s for %d." % [attacker.display_name, player.thorns])
 		attacker.take_damage(player.thorns)
+
+
+## Applies crits/Berserker (player attacking) or Iron Skin/Stone Skin (player
+## defending), then deals the damage. Shared by attacks and skills.
+func _hit(attacker, defender, base: int, verb: String) -> void:
+	var dmg := base
+	var note := ""
+	if attacker == player:
+		if randf() < player.crit_chance:
+			dmg *= 2
+			note = " (crit!)"
+		if player.berserk > 0 and player.hp * 2 < player.max_hp:
+			dmg = int(dmg * (1.0 + player.berserk))
+	if defender == player:
+		if player.shield_turns > 0:
+			_log("Stone Skin blocks %s." % attacker.display_name)
+			player.popup("block", Color(0.6, 0.85, 1))
+			return
+		dmg = max(1, dmg - player.armor)
+	_log("%s %s %s for %d%s." % [attacker.display_name, verb, defender.display_name, dmg, note])
+	defender.take_damage(dmg)
 
 
 func _use_skill(i: int) -> bool:
@@ -230,20 +263,42 @@ func _use_skill(i: int) -> bool:
 				_log("No target in range.")
 				_refresh_hud()
 				return false
-			_log("Fireball scorches %s for %d." % [target.display_name, player.attack + 3])
-			target.take_damage(player.attack + 3)
+			_zap(player.grid_pos, target.grid_pos, Color(1, 0.5, 0.2))
+			_hit(player, target, player.attack + 3, "scorched")
 		"mend":
 			var amount := ceili(player.max_hp * 0.4)
 			player.heal(amount)
 			_log("You mend %d HP." % amount)
+		"stone_skin":
+			player.shield_turns = 2
+			player.queue_redraw()
+			_log("Your skin turns to stone.")
+		"chain_lightning":
+			var target = _nearest_enemy(FIREBALL_RANGE)
+			if target == null:
+				_log("No target in range.")
+				_refresh_hud()
+				return false
+			var from := player.grid_pos
+			var hit := []
+			for jump in 3:
+				_zap(from, target.grid_pos, Color(0.6, 0.8, 1))
+				hit.append(target)
+				from = target.grid_pos
+				_hit(player, target, player.attack, "zapped")
+				target = _nearest_enemy(CHAIN_JUMP_RANGE, from, hit)
+				if target == null:
+					break
 	s.ready_in = s.cooldown + 1  # +1 because end_turn ticks once right away
 	return true
 
 
 func _on_enemy_died(e) -> void:
 	enemies.erase(e)
-	_log("%s dies. +%d XP" % [e.display_name, e.xp_value])
+	_log("%s dies. +%d XP" % [e.display_name, ceili(e.xp_value * player.xp_mult)])
 	player.gain_xp(e.xp_value)
+	if player.kill_heal > 0 and player.is_alive():
+		player.heal(player.kill_heal)
 	e.queue_free()
 	if enemies.is_empty():
 		var cells := floor_cells.keys().filter(func(c): return _dist(c, player.grid_pos) >= 5)
@@ -266,13 +321,45 @@ func _enemy_at(cell: Vector2i):
 	return null
 
 
-func _nearest_enemy(max_range: int):
+## Nearest living enemy to `from` (default: the player), ignoring `exclude`.
+func _nearest_enemy(max_range: int, from := Vector2i(-1, -1), exclude := []):
+	if from.x < 0:
+		from = player.grid_pos
 	var best = null
 	for e in enemies:
-		var d := _dist(e.grid_pos, player.grid_pos)
-		if d <= max_range and (best == null or d < _dist(best.grid_pos, player.grid_pos)):
+		if not e.is_alive() or e in exclude:
+			continue
+		var d := _dist(e.grid_pos, from)
+		if d <= max_range and (best == null or d < _dist(best.grid_pos, from)):
 			best = e
 	return best
+
+
+## True if a and b share a row or column with only open floor between them.
+func _clear_line(a: Vector2i, b: Vector2i) -> bool:
+	if a.x != b.x and a.y != b.y:
+		return false
+	var step := (b - a).sign()
+	var c := a + step
+	while c != b:
+		if not floor_cells.has(c) or _enemy_at(c):
+			return false
+		c += step
+	return true
+
+
+## Brief line between two cells, for projectiles and spells.
+func _zap(a: Vector2i, b: Vector2i, col: Color) -> void:
+	var line := Line2D.new()
+	line.width = 3
+	line.default_color = col
+	line.z_index = 5
+	line.add_point(Vector2(a * TILE) + Vector2(TILE, TILE) / 2)
+	line.add_point(Vector2(b * TILE) + Vector2(TILE, TILE) / 2)
+	add_child(line)
+	var tw := line.create_tween()
+	tw.tween_property(line, "modulate:a", 0.0, 0.25)
+	tw.tween_callback(line.queue_free)
 
 
 func _dist(a: Vector2i, b: Vector2i) -> int:
@@ -312,8 +399,9 @@ func _refresh_hud() -> void:
 		for c in Cards.POOL:
 			if c.id == id and c.type == "passive":
 				passive_txt.append("%s x%d" % [c.name, player.card_stacks[id]])
-	_hud.text = "Depth %d   Turn %d   HP %d/%d   ATK %d   Lv %d   XP %d/%d   Enemies %d\nSkills: %s\nPassives: %s\n%s" % [
+	_hud.text = "Depth %d   Turn %d   HP %d/%d   ATK %d   Lv %d   XP %d/%d   Enemies %d%s\nSkills: %s\nPassives: %s\n%s" % [
 		depth, turn, player.hp, player.max_hp, player.attack, player.level, player.xp, player.xp_to_next, enemies.size(),
+		"   STONE SKIN" if player.shield_turns > 0 else "",
 		"  ".join(skill_txt) if skill_txt else "none",
 		", ".join(passive_txt) if passive_txt else "none",
 		"\n".join(log_lines),
