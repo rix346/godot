@@ -31,6 +31,7 @@ func _init() -> void:
 	max_hp = 20
 	hp = 20
 	attack = 3
+	load_art("player")
 
 
 func gain_xp(amount: int) -> void:
