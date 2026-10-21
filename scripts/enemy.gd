@@ -33,6 +33,7 @@ func setup(kind: Dictionary, depth: int) -> void:
 	actions = kind.get("actions", 1)
 	attack_range = kind.get("range", 1)
 	slow = kind.get("slow", false)
+	load_art(kind.name)
 
 
 ## Slow enemies alternate between acting and resting. Returns true if this
