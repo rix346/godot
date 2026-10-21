@@ -1,6 +1,6 @@
 # Godat
 
-Turn-based roguelike prototype in Godot 4.5 (GDScript). See PLAN.md for the 5-day plan.
+Turn-based roguelike prototype in Godot 4.5+ (GDScript, tested on 4.7). See PLAN.md for the 5-day plan.
 
 ## Run
 Open `project.godot` in Godot 4.5+ and press F5.
@@ -21,3 +21,4 @@ Open `project.godot` in Godot 4.5+ and press F5.
 - `scripts/level_up_ui.gd`: the 3-card pick overlay
 - `tools/sim.gd`: headless bot that plays random turns, for smoke tests/balance:
   `godot --headless --script res://tools/sim.gd`
+- `tools/feature_test.gd`: headless check that applies every card and fires every skill on a depth-3 floor

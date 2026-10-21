@@ -46,13 +46,31 @@ func show_choices(player, cards: Array) -> void:
 		var b := Button.new()
 		b.custom_minimum_size = Vector2(250, 180)
 		b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		b.text = "[%d]  %s\n%s\n\n%s" % [i + 1, card.name, card.type.to_upper(), Cards.describe(player, card)]
-		b.add_theme_color_override("font_color", Color(1, 0.85, 0.4) if card.type == "skill" else Color(0.75, 0.9, 1))
+		b.text = "[%d]  %s\n%s %s\n\n%s" % [i + 1, card.name, card.rarity.to_upper(), card.type.to_upper(), Cards.describe(player, card)]
+		_style(b, Cards.RARITY_COLORS[card.rarity])
 		b.pressed.connect(_pick.bind(i))
 		_row.add_child(b)
 	show()
 	if _row.get_child_count() > 0:
 		(_row.get_child(_row.get_child_count() - cards.size()) as Button).grab_focus.call_deferred()
+
+
+func _style(b: Button, col: Color) -> void:
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0.11, 0.11, 0.14)
+	normal.border_color = col
+	normal.set_border_width_all(3)
+	normal.set_corner_radius_all(8)
+	var hover := normal.duplicate()
+	hover.bg_color = Color(0.18, 0.18, 0.24)
+	var focus := hover.duplicate()
+	focus.set_border_width_all(5)
+	b.add_theme_stylebox_override("normal", normal)
+	b.add_theme_stylebox_override("hover", hover)
+	b.add_theme_stylebox_override("pressed", hover)
+	b.add_theme_stylebox_override("focus", focus)
+	for state in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		b.add_theme_color_override(state, col.lightened(0.3))
 
 
 func _unhandled_input(event: InputEvent) -> void:
