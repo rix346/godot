@@ -13,7 +13,9 @@ const LevelUpUI := preload("res://scripts/level_up_ui.gd")
 const W := 30
 const H := 18
 const TILE := Unit.TILE
-const DIRS := [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]
+const MAX_ROOMS := 9
+const EXTRA_CORRIDORS := 2  # extra links between random rooms, so maps have loops
+const SIGHT := 7
 const FIREBALL_RANGE := 6
 const CHAIN_JUMP_RANGE := 3
 
@@ -23,6 +25,9 @@ var state := State.PLAYER_TURN
 var depth := 1
 var turn := 1
 var floor_cells := {}  # Vector2i -> true
+var rooms: Array[Rect2i] = []
+var visible_cells := {}  # in the player's line of sight right now
+var seen_cells := {}  # explored on this floor; drawn dimmed when not visible
 var stairs := Vector2i(-1, -1)
 var astar := AStarGrid2D.new()
 var player: Player
@@ -54,20 +59,34 @@ func _new_floor() -> void:
 		e.queue_free()
 	enemies.clear()
 	stairs = Vector2i(-1, -1)
+	seen_cells.clear()
 	_carve_map()
-	player.place(Vector2i(W / 2, H / 2))
+	player.place(rooms[0].get_center())
 	_spawn_enemies(3 + depth * 2)
-	queue_redraw()
+	_update_fov()
 
 
-## Drunkard's walk from the centre, so every floor tile is reachable.
+## Non-overlapping rectangular rooms, chained left to right by L-shaped
+## corridors (plus a few extra links), so every floor tile is reachable.
 func _carve_map() -> void:
 	floor_cells.clear()
-	var pos := Vector2i(W / 2, H / 2)
-	var target := int(W * H * 0.42)
-	while floor_cells.size() < target:
-		floor_cells[pos] = true
-		pos = (pos + DIRS.pick_random()).clamp(Vector2i(1, 1), Vector2i(W - 2, H - 2))
+	rooms.clear()
+	for attempt in 100:
+		if rooms.size() >= MAX_ROOMS:
+			break
+		var size := Vector2i(randi_range(4, 8), randi_range(3, 6))
+		var room := Rect2i(Vector2i(randi_range(1, W - size.x - 1), randi_range(1, H - size.y - 1)), size)
+		if not rooms.any(func(other): return other.grow(1).intersects(room)):
+			rooms.append(room)
+	rooms.sort_custom(func(a, b): return a.position.x < b.position.x)
+	for i in rooms.size():
+		for x in range(rooms[i].position.x, rooms[i].end.x):
+			for y in range(rooms[i].position.y, rooms[i].end.y):
+				floor_cells[Vector2i(x, y)] = true
+		if i > 0:
+			_carve_corridor(rooms[i - 1].get_center(), rooms[i].get_center())
+	for i in EXTRA_CORRIDORS:
+		_carve_corridor(rooms.pick_random().get_center(), rooms.pick_random().get_center())
 
 	astar.region = Rect2i(0, 0, W, H)
 	astar.cell_size = Vector2(1, 1)
@@ -76,6 +95,44 @@ func _carve_map() -> void:
 	for x in W:
 		for y in H:
 			astar.set_point_solid(Vector2i(x, y), not floor_cells.has(Vector2i(x, y)))
+
+
+func _carve_corridor(a: Vector2i, b: Vector2i) -> void:
+	var corner := Vector2i(b.x, a.y) if randf() < 0.5 else Vector2i(a.x, b.y)
+	for leg in [[a, corner], [corner, b]]:
+		var c: Vector2i = leg[0]
+		var step: Vector2i = (leg[1] - c).sign()
+		floor_cells[c] = true
+		while c != leg[1]:
+			c += step
+			floor_cells[c] = true
+
+
+## Recomputes what the player can see and hides enemies outside it.
+func _update_fov() -> void:
+	visible_cells.clear()
+	var p := player.grid_pos
+	for x in range(maxi(0, p.x - SIGHT), mini(W, p.x + SIGHT + 1)):
+		for y in range(maxi(0, p.y - SIGHT), mini(H, p.y + SIGHT + 1)):
+			var c := Vector2i(x, y)
+			if (c - p).length_squared() <= SIGHT * SIGHT and _line_of_sight(p, c):
+				visible_cells[c] = true
+				seen_cells[c] = true
+	for e in enemies:
+		e.visible = visible_cells.has(e.grid_pos)
+	queue_redraw()
+
+
+## True if nothing but floor lies strictly between a and b (walls at b are
+## themselves visible).
+func _line_of_sight(a: Vector2i, b: Vector2i) -> bool:
+	var d := b - a
+	var n := maxi(absi(d.x), absi(d.y))
+	for i in range(1, n):
+		var t := float(i) / n
+		if not floor_cells.has(Vector2i(roundi(a.x + d.x * t), roundi(a.y + d.y * t))):
+			return false
+	return true
 
 
 func _spawn_enemies(count: int) -> void:
@@ -91,9 +148,12 @@ func _spawn_enemies(count: int) -> void:
 
 
 func _draw() -> void:
+	draw_rect(Rect2(Vector2.ZERO, Vector2(W * TILE, H * TILE)), Color.BLACK)
 	for x in W:
 		for y in H:
 			var c := Vector2i(x, y)
+			if not seen_cells.has(c):
+				continue
 			var is_floor := floor_cells.has(c)
 			var tex := _floor_tex if is_floor else _wall_tex
 			if tex:
@@ -101,12 +161,15 @@ func _draw() -> void:
 			else:
 				var col := Color(0.16, 0.16, 0.2) if is_floor else Color(0.05, 0.05, 0.07)
 				draw_rect(Rect2(Vector2(c * TILE), Vector2(TILE - 1, TILE - 1)), col)
-	if stairs.x >= 0:
+	if stairs.x >= 0 and seen_cells.has(stairs):
 		if _stairs_tex:
 			draw_texture_rect(_stairs_tex, Rect2(Vector2(stairs * TILE), Vector2(TILE, TILE)), false)
 		else:
 			draw_rect(Rect2(Vector2(stairs * TILE) + Vector2(4, 4), Vector2(TILE - 8, TILE - 8)), Color(0.95, 0.8, 0.2))
 			draw_string(ThemeDB.fallback_font, Vector2(stairs * TILE) + Vector2(4, 22), ">", HORIZONTAL_ALIGNMENT_CENTER, TILE - 8, 16, Color.BLACK)
+	for c in seen_cells:
+		if not visible_cells.has(c):
+			draw_rect(Rect2(Vector2(c * TILE), Vector2(TILE, TILE)), Color(0, 0, 0, 0.6))
 
 
 ## res://art/<art_name>.png, or null so the caller falls back to plain colours.
@@ -172,6 +235,7 @@ func _end_player_turn() -> void:
 	if player.shield_turns > 0:
 		player.shield_turns -= 1
 		player.queue_redraw()
+	_update_fov()
 	turn += 1
 	_check_level_up()
 	_refresh_hud()
