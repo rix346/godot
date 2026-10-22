@@ -3,8 +3,8 @@ config_version=5
 
 [application]
 
-config/name="Godat"
-run/main_scene="res://scenes/main.tscn"
+config/name="Dungeons: To The Bottom"
+run/main_scene="res://scenes/title.tscn"
 config/features=PackedStringArray("4.5")
 
 [display]
