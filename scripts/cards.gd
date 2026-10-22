@@ -49,6 +49,25 @@ const POOL := [
 		desc = "Block all damage for the next 2 enemy turns."},
 	{id = "chain_lightning", name = "Chain Lightning", type = "skill", rarity = "epic", cooldown = 6, max_stacks = 3,
 		desc = "Zap the nearest enemy, then jump to 2 more nearby, for attack damage each."},
+	# Weapons: one equipped at a time, picking another replaces it. Icon is
+	# art/weapon_<id>.png. Optional keys change the basic attack (see main.gd
+	# _player_attack): atk, crit, hits + hit_mult, reach, pierce, sweep,
+	# cleave, giant_slayer.
+	{id = "dagger", name = "Dagger", type = "weapon", rarity = "common", max_stacks = 1,
+		hits = 2, hit_mult = 0.6, desc = "Strike twice, each for 60% damage."},
+	{id = "sword", name = "Sword", type = "weapon", rarity = "rare", max_stacks = 1,
+		atk = 2, desc = "+2 attack."},
+	{id = "spear", name = "Spear", type = "weapon", rarity = "rare", max_stacks = 1,
+		atk = 1, reach = 2, pierce = true,
+		desc = "+1 attack. Reaches 2 tiles and pierces to the enemy behind."},
+	{id = "trident", name = "Trident", type = "weapon", rarity = "epic", max_stacks = 1,
+		atk = 2, sweep = true, desc = "+2 attack. Also hits enemies on both sides of your target."},
+	{id = "mythril_blade", name = "Mythril Blade", type = "weapon", rarity = "epic", max_stacks = 1,
+		atk = 4, crit = 0.2, desc = "+4 attack and +20% crit chance."},
+	{id = "dragon_slayer", name = "Dragon Slayer", type = "weapon", rarity = "legendary", max_stacks = 1,
+		atk = 6, giant_slayer = true, desc = "+6 attack. Double damage to big enemies (15+ max HP)."},
+	{id = "excalibur", name = "Excalibur", type = "weapon", rarity = "legendary", max_stacks = 1,
+		atk = 5, cleave = true, desc = "+5 attack. Every attack also hits all enemies around you."},
 ]
 
 
@@ -71,6 +90,8 @@ static func roll_choices(player, count := 3) -> Array:
 
 
 static func can_offer(player, card: Dictionary) -> bool:
+	if card.type == "weapon":
+		return player.weapon.get("id", "") != card.id
 	var stacks: int = player.card_stacks.get(card.id, 0)
 	if card.type == "skill" and stacks == 0 and player.skills.size() >= player.MAX_SKILLS:
 		return false
@@ -80,6 +101,8 @@ static func can_offer(player, card: Dictionary) -> bool:
 ## Text shown on the card; owned skills are offered as upgrades.
 static func describe(player, card: Dictionary) -> String:
 	var stacks: int = player.card_stacks.get(card.id, 0)
+	if card.type == "weapon" and not player.weapon.is_empty():
+		return "%s (Replaces %s)" % [card.desc, player.weapon.name]
 	if card.type == "skill":
 		if stacks > 0:
 			return "Upgrade: cooldown -1 and ready now."
@@ -90,6 +113,9 @@ static func describe(player, card: Dictionary) -> String:
 
 
 static func apply(player, card: Dictionary) -> void:
+	if card.type == "weapon":
+		player.equip(card)
+		return
 	player.card_stacks[card.id] = player.card_stacks.get(card.id, 0) + 1
 	match card.id:
 		"tough_hide":
