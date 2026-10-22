@@ -11,6 +11,7 @@ const KINDS := [
 	{name = "Orc", glyph = "o", hp = 12, atk = 3, xp = 4, color = Color(0.85, 0.35, 0.25), min_depth = 2},
 	{name = "Brute", glyph = "B", hp = 20, atk = 6, xp = 8, color = Color(0.6, 0.4, 0.3), min_depth = 3, slow = true},
 	{name = "Wraith", glyph = "W", hp = 9, atk = 5, xp = 6, color = Color(0.75, 0.5, 0.95), min_depth = 3},
+	{name = "Knight", glyph = "K", hp = 15, atk = 7, xp = 10, color = Color(0.75, 0.15, 0.2), min_depth = 5},
 ]
 
 const AGGRO_RANGE := 7
