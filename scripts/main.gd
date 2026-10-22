@@ -197,6 +197,9 @@ func _load_art(art_name: String) -> Texture2D:
 func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed):
 		return
+	if event.keycode == KEY_ESCAPE and state != State.LEVEL_UP:
+		get_tree().change_scene_to_file("res://scenes/title.tscn")
+		return
 	if state == State.DEAD:
 		if event.keycode == KEY_R:
 			get_tree().reload_current_scene()
@@ -445,7 +448,7 @@ func _on_player_died(_p) -> void:
 		_log("Phoenix Heart! You rise again.")
 		return
 	state = State.DEAD
-	_log("You died on depth %d at level %d. Press R to restart." % [depth, player.level])
+	_log("You died on depth %d at level %d. Press R to restart or Esc for the menu." % [depth, player.level])
 
 
 # --- Helpers -----------------------------------------------------------------
