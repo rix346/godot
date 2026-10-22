@@ -4,7 +4,7 @@ extends Control
 
 const GAME_SCENE := "res://scenes/main.tscn"
 const TITLE := "Dungeons: To The Bottom"
-const CREDITS := "Game & art\nRihards\n\nProgramming help\nClaude"
+const CREDITS := "Programmer & Game\nRihards Strazds\n\nArt & Game\nSvjatoslavs Boronins"
 const INK := Color(0.27, 0.16, 0.12)
 const INK_HOVER := Color(0.62, 0.22, 0.12)
 const PANEL_SCALE := 5
