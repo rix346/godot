@@ -18,6 +18,7 @@ var xp_mult := 1.0
 var armor := 0
 var berserk := 0.0  # bonus damage multiplier while below half HP
 var kill_heal := 0
+var revives := 0  # Phoenix Heart
 var shield_turns := 0  # Stone Skin: enemy turns left with all damage blocked
 
 var card_stacks := {}  # card id -> times picked

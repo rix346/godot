@@ -4,6 +4,7 @@ extends CanvasLayer
 signal card_chosen(card: Dictionary)
 
 const Cards := preload("res://scripts/cards.gd")
+const CARD_SIZE := Vector2(192, 300)  # card art is 64x100, drawn at 3x
 
 var _cards: Array = []
 var _row: HBoxContainer
@@ -31,7 +32,7 @@ func _ready() -> void:
 	box.add_child(_title)
 
 	_row = HBoxContainer.new()
-	_row.add_theme_constant_override("separation", 16)
+	_row.add_theme_constant_override("separation", 28)
 	box.add_child(_row)
 	hide()
 
@@ -42,35 +43,77 @@ func show_choices(player, cards: Array) -> void:
 	for child in _row.get_children():
 		child.queue_free()
 	for i in cards.size():
-		var card: Dictionary = cards[i]
-		var b := Button.new()
-		b.custom_minimum_size = Vector2(250, 180)
-		b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		b.text = "[%d]  %s\n%s %s\n\n%s" % [i + 1, card.name, card.rarity.to_upper(), card.type.to_upper(), Cards.describe(player, card)]
-		_style(b, Cards.RARITY_COLORS[card.rarity])
-		b.pressed.connect(_pick.bind(i))
-		_row.add_child(b)
+		_row.add_child(_make_card(i, cards[i], player))
 	show()
 	if _row.get_child_count() > 0:
 		(_row.get_child(_row.get_child_count() - cards.size()) as Button).grab_focus.call_deferred()
 
 
+## One card: the art/card_<rarity>.png frame scaled up, name on top, then
+## rarity/type, description, and the key to press at the bottom.
+func _make_card(i: int, card: Dictionary, player) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = CARD_SIZE
+	b.pivot_offset = CARD_SIZE / 2
+	var frame_path := "res://art/card_%s.png" % card.rarity
+	if ResourceLoader.exists(frame_path):
+		var frame := StyleBoxTexture.new()
+		frame.texture = load(frame_path)
+		for state in ["normal", "hover", "pressed", "focus"]:
+			b.add_theme_stylebox_override(state, frame if state != "focus" else StyleBoxEmpty.new())
+	else:
+		_style(b, Cards.RARITY_COLORS[card.rarity])
+	b.pressed.connect(_pick.bind(i))
+	# Grow the card while it is hovered or selected with the keyboard.
+	for sig in [b.mouse_entered, b.focus_entered]:
+		sig.connect(func(): b.scale = Vector2(1.06, 1.06))
+	for sig in [b.mouse_exited, b.focus_exited]:
+		sig.connect(func(): b.scale = Vector2.ONE)
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 20)
+	b.add_child(margin)
+	var box := VBoxContainer.new()
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_theme_constant_override("separation", 6)
+	margin.add_child(box)
+
+	var ink := Color(0.12, 0.12, 0.18)
+	box.add_child(_label(card.name, 22, ink))
+	box.add_child(_label("%s %s" % [card.rarity.to_upper(), card.type.to_upper()], 11, ink.lightened(0.35)))
+	var desc := _label(Cards.describe(player, card), 15, ink)
+	desc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	desc.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	box.add_child(desc)
+	box.add_child(_label("[%d]" % (i + 1), 13, ink.lightened(0.35)))
+	return b
+
+
+func _label(text: String, font_size: int, col: Color) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	l.add_theme_font_size_override("font_size", font_size)
+	l.add_theme_color_override("font_color", col)
+	return l
+
+
+## Fallback look when there is no card_<rarity>.png for this rarity.
 func _style(b: Button, col: Color) -> void:
 	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color(0.11, 0.11, 0.14)
+	normal.bg_color = col.lightened(0.6)
 	normal.border_color = col
-	normal.set_border_width_all(3)
+	normal.set_border_width_all(4)
 	normal.set_corner_radius_all(8)
-	var hover := normal.duplicate()
-	hover.bg_color = Color(0.18, 0.18, 0.24)
-	var focus := hover.duplicate()
-	focus.set_border_width_all(5)
 	b.add_theme_stylebox_override("normal", normal)
-	b.add_theme_stylebox_override("hover", hover)
-	b.add_theme_stylebox_override("pressed", hover)
-	b.add_theme_stylebox_override("focus", focus)
-	for state in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
-		b.add_theme_color_override(state, col.lightened(0.3))
+	b.add_theme_stylebox_override("hover", normal)
+	b.add_theme_stylebox_override("pressed", normal)
+	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 
 
 func _unhandled_input(event: InputEvent) -> void:
