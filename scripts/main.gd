@@ -36,9 +36,9 @@ var log_lines: Array[String] = []
 
 var _hud: Label
 var _level_ui: LevelUpUI
-var _floor_tex := _load_art("floor")
-var _wall_tex := _load_art("wall")
-var _stairs_tex := _load_art("stairs")
+var _floor_tex: Texture2D
+var _wall_tex: Texture2D
+var _stairs_tex: Texture2D
 
 
 func _ready() -> void:
@@ -59,6 +59,9 @@ func _new_floor() -> void:
 		e.queue_free()
 	enemies.clear()
 	stairs = Vector2i(-1, -1)
+	_floor_tex = _depth_art("floor")
+	_wall_tex = _depth_art("wall")
+	_stairs_tex = _depth_art("stairs")
 	seen_cells.clear()
 	_carve_map()
 	player.place(rooms[0].get_center())
@@ -170,6 +173,17 @@ func _draw() -> void:
 	for c in seen_cells:
 		if not visible_cells.has(c):
 			draw_rect(Rect2(Vector2(c * TILE), Vector2(TILE, TILE)), Color(0, 0, 0, 0.6))
+
+
+## Tile art for the current depth: <name>_<depth>.png, else the nearest
+## shallower <name>_<n>.png, else <name>.png. So floor_1 and floor_4 make
+## depths 1-3 and 4+ look different.
+func _depth_art(art_name: String) -> Texture2D:
+	for d in range(depth, 0, -1):
+		var tex := _load_art("%s_%d" % [art_name, d])
+		if tex:
+			return tex
+	return _load_art(art_name)
 
 
 ## res://art/<art_name>.png, or null so the caller falls back to plain colours.
