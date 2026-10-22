@@ -251,6 +251,11 @@ func _player_step(dir: Vector2i) -> bool:
 func _end_player_turn() -> void:
 	player.end_turn()
 	_run_enemies()
+	if state != State.DEAD and player.poison_turns > 0:
+		player.poison_turns -= 1
+		player.queue_redraw()
+		_log("Poison deals 1 damage.")
+		player.take_damage(1)
 	if state == State.DEAD:
 		_refresh_hud()
 		return
@@ -317,6 +322,11 @@ func _attack(attacker, defender, ranged := false) -> void:
 		attacker.bump(defender.grid_pos - attacker.grid_pos)
 	if attacker == player and player.lifesteal > 0:
 		player.heal(player.lifesteal)
+	if defender == player and attacker != player and attacker.poison > 0 and player.shield_turns == 0 and player.is_alive():
+		if player.poison_turns == 0:
+			_log("You are poisoned!")
+		player.poison_turns = attacker.poison
+		player.queue_redraw()
 	if defender == player and player.thorns > 0 and not ranged and attacker.is_alive():
 		_log("Thorns hit %s for %d." % [attacker.display_name, player.thorns])
 		attacker.take_damage(player.thorns)
@@ -444,6 +454,7 @@ func _on_enemy_died(e) -> void:
 func _on_player_died(_p) -> void:
 	if player.revives > 0:
 		player.revives -= 1
+		player.poison_turns = 0
 		player.heal(ceili(player.max_hp / 2.0))
 		_log("Phoenix Heart! You rise again.")
 		return
@@ -558,7 +569,7 @@ func _refresh_hud() -> void:
 				passive_txt.append("%s x%d" % [c.name, player.card_stacks[id]])
 	_hud.text = "Depth %d   Turn %d   HP %d/%d   ATK %d   Lv %d   XP %d/%d   Enemies %d%s\nWeapon: %s   Skills: %s\nPassives: %s\n%s" % [
 		depth, turn, player.hp, player.max_hp, player.attack, player.level, player.xp, player.xp_to_next, enemies.size(),
-		"   STONE SKIN" if player.shield_turns > 0 else "",
+		("   POISONED (%d)" % player.poison_turns if player.poison_turns > 0 else "") + ("   STONE SKIN" if player.shield_turns > 0 else ""),
 		player.weapon.get("name", "fists"),
 		"  ".join(skill_txt) if skill_txt else "none",
 		", ".join(passive_txt) if passive_txt else "none",
