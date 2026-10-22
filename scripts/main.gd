@@ -228,10 +228,15 @@ func _player_step(dir: Vector2i) -> bool:
 	var target := player.grid_pos + dir
 	var enemy = _enemy_at(target)
 	if enemy:
-		_attack(player, enemy)
+		_player_attack(enemy, dir)
 		return true
 	if not floor_cells.has(target):
 		return false
+	if player.weapon.get("reach", 1) >= 2:
+		var far = _enemy_at(target + dir)
+		if far and far.visible:
+			_player_attack(far, dir)
+			return true
 	player.move_to(target)
 	if target == stairs:
 		depth += 1
@@ -312,6 +317,37 @@ func _attack(attacker, defender, ranged := false) -> void:
 	if defender == player and player.thorns > 0 and not ranged and attacker.is_alive():
 		_log("Thorns hit %s for %d." % [attacker.display_name, player.thorns])
 		attacker.take_damage(player.thorns)
+
+
+## Basic attack with the equipped weapon (see the weapon keys in cards.gd).
+func _player_attack(target, dir: Vector2i) -> void:
+	var w: Dictionary = player.weapon
+	var targets := [target]
+	if w.get("pierce", false):
+		targets.append(_enemy_at(target.grid_pos + dir))
+	if w.get("sweep", false):
+		var side := Vector2i(dir.y, dir.x)
+		targets.append(_enemy_at(target.grid_pos + side))
+		targets.append(_enemy_at(target.grid_pos - side))
+	if w.get("cleave", false):
+		for e in enemies:
+			if _cheb(e.grid_pos, player.grid_pos) == 1:
+				targets.append(e)
+	var done := []
+	for e in targets:
+		if e == null or e in done:
+			continue
+		done.append(e)
+		for i in w.get("hits", 1):
+			if not e.is_alive():
+				break
+			var base := ceili(player.attack * w.get("hit_mult", 1.0))
+			if w.get("giant_slayer", false) and e.max_hp >= 15:
+				base *= 2
+			_hit(player, e, base, "hit")
+			if player.lifesteal > 0:
+				player.heal(player.lifesteal)
+	player.bump(dir)
 
 
 ## Applies crits/Berserker (player attacking) or Iron Skin/Stone Skin (player
@@ -499,9 +535,10 @@ func _refresh_hud() -> void:
 		for c in Cards.POOL:
 			if c.id == id and c.type == "passive":
 				passive_txt.append("%s x%d" % [c.name, player.card_stacks[id]])
-	_hud.text = "Depth %d   Turn %d   HP %d/%d   ATK %d   Lv %d   XP %d/%d   Enemies %d%s\nSkills: %s\nPassives: %s\n%s" % [
+	_hud.text = "Depth %d   Turn %d   HP %d/%d   ATK %d   Lv %d   XP %d/%d   Enemies %d%s\nWeapon: %s   Skills: %s\nPassives: %s\n%s" % [
 		depth, turn, player.hp, player.max_hp, player.attack, player.level, player.xp, player.xp_to_next, enemies.size(),
 		"   STONE SKIN" if player.shield_turns > 0 else "",
+		player.weapon.get("name", "fists"),
 		"  ".join(skill_txt) if skill_txt else "none",
 		", ".join(passive_txt) if passive_txt else "none",
 		"\n".join(log_lines),

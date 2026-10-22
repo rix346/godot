@@ -19,6 +19,7 @@ var armor := 0
 var berserk := 0.0  # bonus damage multiplier while below half HP
 var kill_heal := 0
 var revives := 0  # Phoenix Heart
+var weapon := {}  # the equipped weapon card from cards.gd, or empty
 var shield_turns := 0  # Stone Skin: enemy turns left with all damage blocked
 
 var card_stacks := {}  # card id -> times picked
@@ -42,6 +43,15 @@ func gain_xp(amount: int) -> void:
 		level += 1
 		xp_to_next = int(xp_to_next * 1.5) + 1
 		pending_levels += 1
+
+
+## Swaps in a weapon card, removing the old weapon's stat bonuses.
+func equip(card: Dictionary) -> void:
+	attack -= weapon.get("atk", 0)
+	crit_chance -= weapon.get("crit", 0.0)
+	weapon = card
+	attack += weapon.get("atk", 0)
+	crit_chance += weapon.get("crit", 0.0)
 
 
 func find_skill(id: String) -> Dictionary:
