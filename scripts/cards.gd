@@ -2,11 +2,12 @@ extends RefCounted
 ## Card pool offered on level-up. To add a card: add an entry to POOL and a
 ## branch in apply() (passives) or in main.gd's _use_skill() (skills).
 
-const RARITY_WEIGHTS := {common = 60, rare = 30, epic = 10}
+const RARITY_WEIGHTS := {common = 60, rare = 30, epic = 10, legendary = 3}
 const RARITY_COLORS := {
 	common = Color(0.8, 0.8, 0.8),
 	rare = Color(0.4, 0.65, 1.0),
 	epic = Color(0.8, 0.45, 1.0),
+	legendary = Color(1.0, 0.82, 0.3),
 }
 
 const POOL := [
@@ -33,6 +34,10 @@ const POOL := [
 		desc = "Heal 3 HP on every kill."},
 	{id = "glass_cannon", name = "Glass Cannon", type = "passive", rarity = "epic", max_stacks = 2,
 		desc = "+3 attack, but -5 max HP."},
+	{id = "phoenix_heart", name = "Phoenix Heart", type = "passive", rarity = "legendary", max_stacks = 1,
+		desc = "The first time you would die, revive with half your HP."},
+	{id = "titans_grip", name = "Titan's Grip", type = "passive", rarity = "legendary", max_stacks = 1,
+		desc = "+5 attack and +10 max HP."},
 	# Skills (active, used with keys 1-3, cost a turn, have a cooldown)
 	{id = "fireball", name = "Fireball", type = "skill", rarity = "common", cooldown = 4, max_stacks = 3,
 		desc = "Blast the nearest enemy within 6 tiles for attack +3."},
@@ -108,6 +113,12 @@ static func apply(player, card: Dictionary) -> void:
 			player.berserk += 0.5
 		"bloodlust":
 			player.kill_heal += 3
+		"phoenix_heart":
+			player.revives += 1
+		"titans_grip":
+			player.attack += 5
+			player.max_hp += 10
+			player.heal(10)
 		"glass_cannon":
 			player.attack += 3
 			player.max_hp = max(5, player.max_hp - 5)

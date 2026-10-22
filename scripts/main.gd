@@ -403,6 +403,11 @@ func _on_enemy_died(e) -> void:
 
 
 func _on_player_died(_p) -> void:
+	if player.revives > 0:
+		player.revives -= 1
+		player.heal(ceili(player.max_hp / 2.0))
+		_log("Phoenix Heart! You rise again.")
+		return
 	state = State.DEAD
 	_log("You died on depth %d at level %d. Press R to restart." % [depth, player.level])
 
