@@ -10,6 +10,7 @@ Open `project.godot` in Godot 4.5+ and press F5. The game starts on the title sc
 - Space or `.`: wait a turn
 - 1-3: use skills
 - On level-up: click a card or press 1-3
+- Ranged weapons (Bow, Starlight) shoot by themselves on every move or wait; left-click an enemy to choose the target
 - R after death: restart
 - Esc: back to the title screen
 
