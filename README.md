@@ -1,9 +1,9 @@
-# Godat
+# Dungeons: To The Bottom
 
 Turn-based roguelike prototype in Godot 4.5+ (GDScript, tested on 4.7). See PLAN.md for the 5-day plan.
 
 ## Run
-Open `project.godot` in Godot 4.5+ and press F5.
+Open `project.godot` in Godot 4.5+ and press F5. The game starts on the title screen (`scenes/title.tscn`).
 
 ## Controls
 - Arrows / WASD: move, or attack by moving into an enemy
@@ -11,8 +11,10 @@ Open `project.godot` in Godot 4.5+ and press F5.
 - 1-3: use skills
 - On level-up: click a card or press 1-3
 - R after death: restart
+- Esc: back to the title screen
 
 ## Code map
+- `scripts/title.gd`: title screen (Play / Credits / Exit); edit `CREDITS` there
 - `scripts/main.gd`: dungeon generation, turn loop, combat, skills, HUD
 - `scripts/unit.gd`: shared grid unit (HP, drawing, damage)
 - `scripts/player.gd`: XP/levels and card-modified stats
