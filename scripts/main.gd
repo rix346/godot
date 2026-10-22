@@ -27,6 +27,8 @@ var turn := 1
 var floor_cells := {}  # Vector2i -> true
 var rooms: Array[Rect2i] = []
 var visible_cells := {}  # in the player's line of sight right now
+var _aim = null  # enemy picked with the mouse for a ranged weapon
+var _reticle: Line2D
 var seen_cells := {}  # explored on this floor; drawn dimmed when not visible
 var stairs := Vector2i(-1, -1)
 var astar := AStarGrid2D.new()
@@ -195,6 +197,9 @@ func _load_art(art_name: String) -> Texture2D:
 # --- Input & turn loop -------------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		_aim_at(Vector2i((get_global_mouse_position() / TILE).floor()))
+		return
 	if not (event is InputEventKey and event.pressed):
 		return
 	if event.keycode == KEY_ESCAPE and state != State.LEVEL_UP:
@@ -219,6 +224,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			acted = _player_step(Vector2i.RIGHT)
 		KEY_SPACE, KEY_PERIOD:
 			acted = true
+			_shoot()
 		KEY_1, KEY_2, KEY_3:
 			acted = _use_skill(event.keycode - KEY_1)
 	if acted:
@@ -245,7 +251,80 @@ func _player_step(dir: Vector2i) -> bool:
 		depth += 1
 		_log("You descend to depth %d." % depth)
 		_new_floor()
+	else:
+		_shoot()
 	return true
+
+
+# --- Ranged weapons ------------------------------------------------------------
+
+## Fires the equipped ranged weapon at its target (see _bow_target). Called on
+## every step: moving or waiting, not melee attacks or skills.
+func _shoot() -> void:
+	var w: Dictionary = player.weapon
+	if w.get("ranged", 0) == 0:
+		return
+	_update_fov()  # aim from where the player stands now
+	var targets := []
+	var target = _bow_target()
+	while target != null and targets.size() < w.get("arrows", 1):
+		targets.append(target)
+		target = _nearest_shootable(targets)
+	for e in targets:
+		_zap(player.grid_pos, e.grid_pos, Color(1, 0.95, 0.7))
+		_hit(player, e, ceili(player.attack * w.get("shot_mult", 1.0)), "shot")
+
+
+## The mouse-picked enemy while it can still be shot, else the nearest one.
+func _bow_target():
+	if _aim != null and (not is_instance_valid(_aim) or not _can_shoot(_aim)):
+		_aim = null
+	return _aim if _aim != null else _nearest_shootable()
+
+
+func _nearest_shootable(exclude := []):
+	var best = null
+	for e in enemies:
+		if e in exclude or not _can_shoot(e):
+			continue
+		if best == null or _dist(e.grid_pos, player.grid_pos) < _dist(best.grid_pos, player.grid_pos):
+			best = e
+	return best
+
+
+## In range (counting diagonals as 1), in sight and not blocked by walls.
+func _can_shoot(e) -> bool:
+	return e.is_alive() and visible_cells.has(e.grid_pos) \
+		and _cheb(e.grid_pos, player.grid_pos) <= player.weapon.get("ranged", 0) \
+		and _line_of_sight(player.grid_pos, e.grid_pos)
+
+
+## Left click on an enemy picks it as the ranged target (free, no turn used).
+func _aim_at(cell: Vector2i) -> void:
+	if state != State.PLAYER_TURN or player.weapon.get("ranged", 0) == 0:
+		return
+	var e = _enemy_at(cell)
+	if e and _can_shoot(e):
+		_aim = e
+		_update_reticle()
+
+
+## Box around the current ranged target: red when picked with the mouse,
+## yellow when chosen automatically.
+func _update_reticle() -> void:
+	if _reticle == null:
+		_reticle = Line2D.new()
+		_reticle.width = 2
+		_reticle.z_index = 5
+		_reticle.closed = true
+		for p in [Vector2(1, 1), Vector2(TILE - 1, 1), Vector2(TILE - 1, TILE - 1), Vector2(1, TILE - 1)]:
+			_reticle.add_point(p)
+		add_child(_reticle)
+	var target = _bow_target() if state != State.DEAD else null
+	_reticle.visible = target != null
+	if target:
+		_reticle.position = Vector2(target.grid_pos * TILE)
+		_reticle.default_color = Color(1, 0.3, 0.3) if target == _aim else Color(1, 0.9, 0.4)
 
 
 func _end_player_turn() -> void:
@@ -558,6 +637,7 @@ func _build_hud() -> void:
 
 
 func _refresh_hud() -> void:
+	_update_reticle()
 	var skill_txt := []
 	for i in player.skills.size():
 		var s: Dictionary = player.skills[i]

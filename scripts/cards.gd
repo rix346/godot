@@ -52,7 +52,8 @@ const POOL := [
 	# Weapons: one equipped at a time, picking another replaces it. Icon is
 	# art/weapon_<id>.png. Optional keys change the basic attack (see main.gd
 	# _player_attack): atk, crit, hits + hit_mult, reach, pierce, sweep,
-	# cleave, giant_slayer.
+	# cleave, giant_slayer. Ranged weapons (see main.gd _shoot) also fire on
+	# every step: ranged (tiles), shot_mult, arrows (targets per shot).
 	{id = "dagger", name = "Dagger", type = "weapon", rarity = "common", max_stacks = 1,
 		hits = 2, hit_mult = 0.6, desc = "Strike twice, each for 60% damage."},
 	{id = "sword", name = "Sword", type = "weapon", rarity = "rare", max_stacks = 1,
@@ -68,6 +69,10 @@ const POOL := [
 		atk = 6, giant_slayer = true, desc = "+6 attack. Double damage to big enemies (15+ max HP)."},
 	{id = "excalibur", name = "Excalibur", type = "weapon", rarity = "legendary", max_stacks = 1,
 		atk = 5, cleave = true, desc = "+5 attack. Every attack also hits all enemies around you."},
+	{id = "bow", name = "Bow", type = "weapon", rarity = "rare", max_stacks = 1,
+		ranged = 5, shot_mult = 0.75, desc = "Each step, shoot the nearest enemy (5 tiles) for 75% damage."},
+	{id = "starlight", name = "Starlight", type = "weapon", rarity = "epic", max_stacks = 1,
+		atk = 2, ranged = 5, arrows = 2, desc = "+2 attack. Each step, shoot the 2 nearest enemies (5 tiles)."},
 ]
 
 
