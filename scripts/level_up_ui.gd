@@ -78,13 +78,22 @@ func _make_card(i: int, card: Dictionary, player) -> Button:
 	b.add_child(margin)
 	var box := VBoxContainer.new()
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	box.add_theme_constant_override("separation", 6)
+	box.add_theme_constant_override("separation", 4)
 	margin.add_child(box)
 
 	var ink := Color(0.12, 0.12, 0.18)
 	box.add_child(_label(card.name, 22, ink))
 	box.add_child(_label("%s %s" % [card.rarity.to_upper(), card.type.to_upper()], 11, ink.lightened(0.35)))
-	var desc := _label(Cards.describe(player, card), 15, ink)
+	var icon_path := "res://art/%s_%s.png" % [card.type, card.id]
+	if ResourceLoader.exists(icon_path):
+		var icon := TextureRect.new()
+		icon.texture = load(icon_path)
+		icon.custom_minimum_size = Vector2(64, 64)  # 32x32 art at 2x
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		box.add_child(icon)
+	var desc := _label(Cards.describe(player, card), 14, ink)
 	desc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	desc.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	box.add_child(desc)
