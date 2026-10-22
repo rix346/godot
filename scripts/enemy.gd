@@ -1,7 +1,8 @@
 extends "res://scripts/unit.gd"
 ## A monster. Stats come from a KINDS entry, scaled by dungeon depth.
 ## Optional KINDS keys: actions (moves per turn), range (ranged attack along a
-## straight line), slow (only acts every other turn).
+## straight line), slow (only acts every other turn), poison (melee hits poison
+## the player for that many turns).
 
 const KINDS := [
 	{name = "Rat", glyph = "r", hp = 4, atk = 1, xp = 1, color = Color(0.65, 0.55, 0.45), min_depth = 1},
@@ -11,6 +12,7 @@ const KINDS := [
 	{name = "Orc", glyph = "o", hp = 12, atk = 3, xp = 4, color = Color(0.85, 0.35, 0.25), min_depth = 2},
 	{name = "Brute", glyph = "B", hp = 20, atk = 6, xp = 8, color = Color(0.6, 0.4, 0.3), min_depth = 3, slow = true},
 	{name = "Wraith", glyph = "W", hp = 9, atk = 5, xp = 6, color = Color(0.75, 0.5, 0.95), min_depth = 3},
+	{name = "Spider", glyph = "s", hp = 6, atk = 2, xp = 4, color = Color(0.45, 0.3, 0.55), min_depth = 3, poison = 3},
 	{name = "Knight", glyph = "K", hp = 15, atk = 7, xp = 10, color = Color(0.75, 0.15, 0.2), min_depth = 5},
 ]
 
@@ -20,6 +22,7 @@ var xp_value := 1
 var actions := 1
 var attack_range := 1
 var slow := false
+var poison := 0
 var resting := false
 
 
@@ -34,6 +37,7 @@ func setup(kind: Dictionary, depth: int) -> void:
 	actions = kind.get("actions", 1)
 	attack_range = kind.get("range", 1)
 	slow = kind.get("slow", false)
+	poison = kind.get("poison", 0)
 	load_art(kind.name)
 
 

@@ -21,6 +21,7 @@ var kill_heal := 0
 var revives := 0  # Phoenix Heart
 var weapon := {}  # the equipped weapon card from cards.gd, or empty
 var shield_turns := 0  # Stone Skin: enemy turns left with all damage blocked
+var poison_turns := 0  # Spider poison: turns left losing 1 HP
 
 var card_stacks := {}  # card id -> times picked
 var skills: Array[Dictionary] = []  # {id, name, cooldown, ready_in}
@@ -75,5 +76,7 @@ func end_turn() -> void:
 
 func _draw() -> void:
 	super()
+	if poison_turns > 0:
+		draw_circle(Vector2(TILE - 5, 5), 3, Color(0.4, 0.9, 0.3))
 	if shield_turns > 0:
 		draw_arc(Vector2(TILE, TILE) / 2, TILE / 2 - 1, 0, TAU, 24, Color(0.6, 0.85, 1), 2)
