@@ -508,17 +508,35 @@ func _cheb(a: Vector2i, b: Vector2i) -> int:
 
 func _log(msg: String) -> void:
 	log_lines.append(msg)
-	if log_lines.size() > 4:
+	if log_lines.size() > 3:
 		log_lines.pop_front()
 
 
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
+	var hud_size := Vector2(W * TILE, 720 - H * TILE)
+	var ink := Color.WHITE
+	if ResourceLoader.exists("res://art/hud.png"):
+		# Parchment drawn as a 9-patch at 2x, so its ends stay crisp.
+		var bg := NinePatchRect.new()
+		bg.texture = load("res://art/hud.png")
+		bg.patch_margin_left = 12
+		bg.patch_margin_right = 12
+		bg.patch_margin_top = 10
+		bg.patch_margin_bottom = 10
+		bg.axis_stretch_horizontal = NinePatchRect.AXIS_STRETCH_MODE_TILE_FIT
+		bg.position = Vector2(0, H * TILE)
+		bg.size = hud_size / 2
+		bg.scale = Vector2(2, 2)
+		layer.add_child(bg)
+		ink = Color(0.27, 0.16, 0.12)
 	_hud = Label.new()
-	_hud.position = Vector2(8, H * TILE + 6)
-	_hud.size = Vector2(W * TILE - 16, 720 - H * TILE - 12)
-	_hud.add_theme_font_size_override("font_size", 14)
+	_hud.position = Vector2(30, H * TILE + 14)
+	_hud.size = hud_size - Vector2(60, 28)
+	_hud.add_theme_font_size_override("font_size", 13)
+	_hud.add_theme_constant_override("line_spacing", -2)
+	_hud.add_theme_color_override("font_color", ink)
 	layer.add_child(_hud)
 	_level_ui = LevelUpUI.new()
 	_level_ui.card_chosen.connect(_on_card_chosen)
