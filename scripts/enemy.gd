@@ -41,6 +41,12 @@ func setup(kind: Dictionary, depth: int) -> void:
 	load_art(kind.name)
 
 
+## Tougher enemies (more XP) are more likely to drop a coin: a Rat 18%, a
+## Goblin 26%, an Orc 42%, a Brute 74%, a Knight 90%.
+func coin_chance() -> float:
+	return minf(0.9, 0.1 + 0.08 * xp_value)
+
+
 ## Slow enemies alternate between acting and resting. Returns true if this
 ## enemy skips the current turn.
 func tick_rest() -> bool:
