@@ -1,10 +1,10 @@
 # Dungeons: To The Bottom
 
-A turn-based dungeon crawler made in Godot. Fight your way down an endless dungeon, one floor at a time. Every time you level up, pick 1 of 3 cards (passives, skills or weapons) and build a different hero each run.
+A turn-based dungeon crawler made in Godot. Fight your way down an endless dungeon, one floor at a time. Every time you level up, pick 1 of 3 cards (passives, skills or weapons) and build a different hero each run. Collect coins and spend them at the shopkeeper for even more cards.
 
 ![Title screen](docs/title.png)
 
-**Contents:** [Running the game](#running-the-game) · [How to play](#how-to-play) · [Controls](#controls) · [Enemies](#enemies) · [Cards](#cards) · [Weapons](#weapons) · [Skills](#skills) · [Passives](#passives) · [Adding art](#adding-art) · [For developers](#for-developers) · [Credits](#credits)
+**Contents:** [Running the game](#running-the-game) · [How to play](#how-to-play) · [Controls](#controls) · [Enemies](#enemies) · [Coins and the shop](#coins-and-the-shop) · [Cards](#cards) · [Weapons](#weapons) · [Skills](#skills) · [Passives](#passives) · [Adding art](#adding-art) · [For developers](#for-developers) · [Credits](#credits)
 
 ---
 
@@ -40,12 +40,13 @@ To try a change before it's merged, go to **Current Branch → Pull Requests**, 
 
 - **It's turn-based.** Nothing moves until you do. After each of your actions, every enemy takes its turn.
 - **Attack by walking into an enemy.**
-- **Clear the floor.** When every enemy on a floor is dead, the **stairs** appear. Step on them to go one depth deeper. The dungeon never ends, but each depth has more and stronger enemies (3 + 2 × depth of them).
+- **Clear the floor.** When every enemy on a floor is dead, the **stairs** appear. Step on them to go one depth deeper, and you **heal 30% of your max HP** on the way down. The dungeon never ends, but each depth has more and stronger enemies (3 + 2 × depth of them).
+- **Coins and the shop.** Enemies sometimes drop coins. Spend them at the shopkeeper, who shows up on some floors. See [Coins and the shop](#coins-and-the-shop).
 - **Fog of war.** You see 7 tiles around you, and walls block your view. Places you've already seen stay on the map, darker.
 - **Level up.** Kills give XP. Each level-up pauses the game and offers **3 cards**, and you pick one. Each level needs a bit more XP than the last.
-- **Dying.** The run is over. Press **R** to start a new one, or **Esc** to go back to the menu.
+- **Dying.** The run is over and your coins are lost. Press **R** to start a new one, or **Esc** to go back to the menu.
 
-The bar at the bottom shows depth, turn, HP, attack, level, XP, enemies left, your weapon, skills, passives and the last few combat messages.
+The bar at the bottom shows depth, turn, HP, attack, level, XP, enemies left, your weapon, skills, passives and the last few combat messages. Your coins are in its top-right corner.
 
 You start with **20 HP** and **3 attack**.
 
@@ -57,11 +58,12 @@ You start with **20 HP** and **3 attack**.
 |---|---|
 | Arrows / WASD | Move. Walk into an enemy to attack it |
 | Space or `.` | Wait one turn |
-| 1, 2, 3 | Use skill 1-3 |
+| 1, 2, 3 | Use skill 1-3. Break Wall then asks for a direction (arrows / WASD) |
 | Left mouse click on an enemy | Choose the target for a ranged weapon (doesn't use a turn) |
-| 1, 2, 3 or click | Pick a card on the level-up screen |
+| 1, 2, 3 or click | Pick a card on the level-up screen, or buy one in the shop |
+| Walk into the shopkeeper | Open the shop (doesn't use a turn) |
 | R | Restart after dying |
-| Esc | Back to the title screen |
+| Esc | Leave the shop, cancel Break Wall, or go back to the title screen |
 
 ---
 
@@ -69,19 +71,36 @@ You start with **20 HP** and **3 attack**.
 
 Enemies get stronger the deeper you go: **+2 HP per depth** and **+1 attack every 2 depths**. The table shows their stats at the depth where they first appear.
 
-| Enemy | From depth | HP | Attack | XP | Special |
-|---|---|---|---|---|---|
-| Rat | 1 | 4 | 1 | 1 | – |
-| Bat | 1 | 3 | 1 | 2 | Fast: acts twice per turn |
-| Goblin | 1 | 7 | 2 | 2 | – |
-| Archer | 2 | 7 | 2 | 3 | Shoots you from up to 5 tiles away in a straight line |
-| Orc | 2 | 14 | 3 | 4 | Tough |
-| Brute | 3 | 24 | 7 | 8 | Slow: rests every other turn (shows a "z") |
-| Wraith | 3 | 13 | 6 | 6 | Hits hard |
-| Spider | 3 | 10 | 3 | 4 | **Poison:** its bite deals 1 damage per turn for 3 turns |
-| Knight | 5 | 23 | 9 | 10 | The hardest hitter |
+| Enemy | From depth | HP | Attack | XP | Coin drop | Special |
+|---|---|---|---|---|---|---|
+| Rat | 1 | 4 | 1 | 1 | 18% | – |
+| Bat | 1 | 3 | 1 | 2 | 26% | Fast: acts twice per turn |
+| Goblin | 1 | 7 | 2 | 2 | 26% | – |
+| Archer | 2 | 7 | 2 | 3 | 34% | Shoots you from up to 5 tiles away in a straight line |
+| Orc | 2 | 14 | 3 | 4 | 42% | Tough |
+| Brute | 3 | 24 | 7 | 8 | 74% | Slow: rests every other turn (shows a "z") |
+| Wraith | 3 | 13 | 6 | 6 | 58% | Hits hard |
+| Spider | 3 | 10 | 3 | 4 | 42% | **Poison:** its bite deals 1 damage per turn for 3 turns |
+| Knight | 5 | 23 | 9 | 10 | 90% | The hardest hitter |
 
 Enemies chase you once you're within 7 tiles of them.
+
+---
+
+## Coins and the shop
+
+**Coins.** When an enemy dies it may drop a coin on its tile. Tougher enemies drop them more often (see the *Coin drop* column above). Walk over a coin to pick it up. Coins still on the floor when you take the stairs are left behind, and **when you die you lose all your coins**. With the **Coin Magnet** passive, coins fly straight to your counter instead.
+
+**The shopkeeper ($).** From depth 2, when you clear a floor a shopkeeper sometimes appears along with the stairs: 40% of the time, and never 3 floors in a row without one. The shopkeeper always stands in an open spot, so they never block a corridor, and they can't be hurt.
+
+Walk into the shopkeeper to open the shop. It has 3 cards for sale, picked the same way as level-up cards. Buy one with **1-3** or a click, and leave with **Esc**. Browsing doesn't use a turn, and you can come back as long as you're on that floor.
+
+| Rarity | Price |
+|---|---|
+| Common | 3 coins |
+| Rare | 5 coins |
+| Epic | 8 coins |
+| Legendary | 12 coins |
 
 ---
 
@@ -96,7 +115,7 @@ Each level-up offers 3 different cards. How often a card shows up depends on its
 | Epic | Purple | 10 |
 | Legendary | Yellow | 3 |
 
-There are three kinds of card: **weapons**, **skills** and **passives**.
+There are three kinds of card: **weapons**, **skills** and **passives**. Once you hold a weapon, a level-up never offers 3 weapons at once, so you're never forced to swap. With your fists, any mix can come up.
 
 ![Level-up cards](docs/level-up.png)
 
@@ -115,7 +134,7 @@ You hold **one weapon at a time**. Picking a new one replaces the old one. Witho
 | Trident | Epic | +2 attack. Also hits the enemies on both sides of your target |
 | Mythril Blade | Epic | +4 attack and +20% crit chance |
 | Starlight | Epic | **Ranged.** +2 attack. Each step, shoots the 2 nearest enemies within 5 tiles |
-| Dragon Slayer | Legendary | +6 attack. Double damage to big enemies (15+ max HP) |
+| Dragon Slayer | Legendary | +6 attack. Double damage to enemies with 15 or more max HP |
 | Excalibur | Legendary | +5 attack. Every attack also hits all enemies around you |
 
 **How ranged weapons work:** every time you **move or wait**, the weapon fires by itself at the closest enemy you can see within 5 tiles (walls block shots). A **yellow box** marks that target. **Left-click** another enemy in range to aim at it instead, and the box turns **red**. You can still walk into enemies for a normal melee hit.
@@ -133,6 +152,7 @@ Skills go in your skill bar (up to **3**) and are used with keys **1-3**. Using 
 | Mend | Rare | 10 | Restores 40% of max HP |
 | Stone Skin | Rare | 9 | Blocks all damage for the next 2 enemy turns |
 | Chain Lightning | Epic | 6 | Zaps the nearest enemy, then jumps to 2 more nearby |
+| Break Wall | Legendary | 4 | Smashes a wall next to you into floor, making a new path. Press its key, then a direction (any other key cancels). The map edge and the 4 corner tiles around each room can't break |
 
 ---
 
@@ -153,8 +173,10 @@ Passives are always on. Most can be picked more than once (max stacks in bracket
 | Berserker (2) | Rare | +50% damage while below half HP |
 | Bloodlust (3) | Epic | Heal 3 HP on every kill |
 | Glass Cannon (2) | Epic | +3 attack, but −5 max HP |
+| Coin Magnet (1) | Epic | Coins fly straight to you instead of dropping on the ground |
 | Phoenix Heart (1) | Legendary | The first time you would die, revive with half your HP |
 | Titan's Grip (1) | Legendary | +5 attack and +10 max HP |
+| Night Vision (1) | Legendary | See the whole floor and every enemy on it. No more fog |
 
 ---
 
@@ -166,6 +188,7 @@ All art lives in [`art/`](art/README.md) and is picked up **by file name**. Drop
 - Tiles: `floor.png`, `wall.png`, `stairs.png`. Add `wall_4.png` and so on to change the look from that depth on.
 - Cards: `card_common.png` ... `card_legendary.png` (64×100). Weapon icons: `weapon_<id>.png` (32×32).
 - UI: `hud.png` (bottom bar) and `menu_panel.png` (title screen scroll).
+- Coins and the shop: `coin.png` (32×32, drawn at half size on the floor) and `shopkeeper.png` (32×32).
 
 The full list is in [art/README.md](art/README.md). **Commit each `.png` together with its `.png.import` file.**
 
@@ -178,14 +201,15 @@ Written in GDScript. The UI is built in code, so there are only two scenes.
 | File | What's in it |
 |---|---|
 | `scenes/title.tscn`, `scripts/title.gd` | Title screen (Play / Credits / Exit). Credits text is `CREDITS` |
-| `scenes/main.tscn`, `scripts/main.gd` | Dungeon generation, fog of war, turn loop, combat, weapons, skills, HUD |
+| `scenes/main.tscn`, `scripts/main.gd` | Dungeon generation, fog of war, turn loop, combat, weapons, skills, coins, shop, HUD |
 | `scripts/unit.gd` | Shared grid unit: HP, drawing, damage, movement |
 | `scripts/player.gd` | XP, levels and the stats cards change |
 | `scripts/enemy.gd` | Enemy types (`KINDS`) and depth scaling |
 | `scripts/cards.gd` | Every card (`POOL`), offer rules and effects |
 | `scripts/level_up_ui.gd` | The 3-card pick screen |
+| `scripts/shop_ui.gd` | The shop screen. Prices are in `PRICES` |
 | `tools/sim.gd` | Headless bot that plays random turns (smoke test) |
-| `tools/feature_test.gd` | Applies every card and fires every skill on a depth-3 floor |
+| `tools/feature_test.gd` | Checks the coin, shop, Night Vision and Break Wall rules, then applies every card and fires every skill on a depth-3 floor |
 
 **Adding an enemy:** add a line to `KINDS` in `scripts/enemy.gd`. The optional keys are `actions`, `range`, `slow` and `poison`.
 **Adding a card:** add an entry to `POOL` in `scripts/cards.gd`. Passives go in `apply()`, skills in `_use_skill()` in `main.gd`, and weapons use keys like `atk`, `crit`, `reach`, `ranged`.
