@@ -22,6 +22,9 @@ var revives := 0  # Phoenix Heart
 var weapon := {}  # the equipped weapon card from cards.gd, or empty
 var shield_turns := 0  # Stone Skin: enemy turns left with all damage blocked
 var poison_turns := 0  # Spider poison: turns left losing 1 HP
+var night_vision := false  # the whole floor is visible
+var coin_magnet := false  # coins go straight to you instead of the floor
+var coins := 0  # lost when you die
 
 var card_stacks := {}  # card id -> times picked
 var skills: Array[Dictionary] = []  # {id, name, cooldown, ready_in}

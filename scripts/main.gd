@@ -9,6 +9,7 @@ const Player := preload("res://scripts/player.gd")
 const Enemy := preload("res://scripts/enemy.gd")
 const Cards := preload("res://scripts/cards.gd")
 const LevelUpUI := preload("res://scripts/level_up_ui.gd")
+const ShopUI := preload("res://scripts/shop_ui.gd")
 
 const W := 30
 const H := 18
@@ -18,8 +19,17 @@ const EXTRA_CORRIDORS := 2  # extra links between random rooms, so maps have loo
 const SIGHT := 7
 const FIREBALL_RANGE := 6
 const CHAIN_JUMP_RANGE := 3
+const DESCEND_HEAL := 0.3  # part of max HP you get back on every trip down the stairs
+const SHOP_CHANCE := 0.4  # chance a cleared floor gets a shopkeeper (from depth 2)
+const SHOP_FIRST_DEPTH := 2
+const COIN_SIZE := 16  # coins on the ground are drawn at half a tile
+const GOLD := Color(1.0, 0.84, 0.3)  # coins, the shop sign and the Break Wall outline
+const DIRECTION_KEYS := {
+	KEY_UP: Vector2i.UP, KEY_W: Vector2i.UP, KEY_DOWN: Vector2i.DOWN, KEY_S: Vector2i.DOWN,
+	KEY_LEFT: Vector2i.LEFT, KEY_A: Vector2i.LEFT, KEY_RIGHT: Vector2i.RIGHT, KEY_D: Vector2i.RIGHT,
+}
 
-enum State { PLAYER_TURN, LEVEL_UP, DEAD }
+enum State { PLAYER_TURN, LEVEL_UP, DEAD, SHOP }
 
 var state := State.PLAYER_TURN
 var depth := 1
@@ -31,6 +41,11 @@ var _aim = null  # enemy picked with the mouse for a ranged weapon
 var _reticle: Line2D
 var seen_cells := {}  # explored on this floor; drawn dimmed when not visible
 var stairs := Vector2i(-1, -1)
+var coins := {}  # Vector2i -> coins lying on that tile
+var shop := Vector2i(-1, -1)  # the shopkeeper's tile, (-1, -1) if this floor has none
+var shop_stock: Array = []  # [{card, sold}] for sale on this floor
+var floors_without_shop := 0
+var breaking := false  # Break Wall is waiting for a direction
 var astar := AStarGrid2D.new()
 var player: Player
 var enemies: Array = []
@@ -41,10 +56,18 @@ var _level_ui: LevelUpUI
 var _floor_tex: Texture2D
 var _wall_tex: Texture2D
 var _stairs_tex: Texture2D
+var _coin_tex: Texture2D
+var _shop_tex: Texture2D
+var _hud_layer: CanvasLayer
+var _purse: TextureRect  # HUD coin icon; Coin Magnet coins fly here
+var _purse_label: Label
+var _shop_ui: ShopUI
 
 
 func _ready() -> void:
 	randomize()
+	_coin_tex = _load_art("coin")
+	_shop_tex = _load_art("shopkeeper")
 	_build_hud()
 	player = Player.new()
 	player.died.connect(_on_player_died)
@@ -61,6 +84,10 @@ func _new_floor() -> void:
 		e.queue_free()
 	enemies.clear()
 	stairs = Vector2i(-1, -1)
+	coins.clear()
+	shop = Vector2i(-1, -1)
+	shop_stock = []
+	breaking = false
 	_floor_tex = _depth_art("floor")
 	_wall_tex = _depth_art("wall")
 	_stairs_tex = _depth_art("stairs")
@@ -117,12 +144,20 @@ func _carve_corridor(a: Vector2i, b: Vector2i) -> void:
 func _update_fov() -> void:
 	visible_cells.clear()
 	var p := player.grid_pos
-	for x in range(maxi(0, p.x - SIGHT), mini(W, p.x + SIGHT + 1)):
-		for y in range(maxi(0, p.y - SIGHT), mini(H, p.y + SIGHT + 1)):
-			var c := Vector2i(x, y)
-			if (c - p).length_squared() <= SIGHT * SIGHT and _line_of_sight(p, c):
-				visible_cells[c] = true
-				seen_cells[c] = true
+	if player.night_vision:
+		# Night Vision: every floor tile and the walls around it are lit.
+		for c in floor_cells:
+			for x in range(c.x - 1, c.x + 2):
+				for y in range(c.y - 1, c.y + 2):
+					visible_cells[Vector2i(x, y)] = true
+		seen_cells.merge(visible_cells)
+	else:
+		for x in range(maxi(0, p.x - SIGHT), mini(W, p.x + SIGHT + 1)):
+			for y in range(maxi(0, p.y - SIGHT), mini(H, p.y + SIGHT + 1)):
+				var c := Vector2i(x, y)
+				if (c - p).length_squared() <= SIGHT * SIGHT and _line_of_sight(p, c):
+					visible_cells[c] = true
+					seen_cells[c] = true
 	for e in enemies:
 		e.visible = visible_cells.has(e.grid_pos)
 	queue_redraw()
@@ -172,9 +207,31 @@ func _draw() -> void:
 		else:
 			draw_rect(Rect2(Vector2(stairs * TILE) + Vector2(4, 4), Vector2(TILE - 8, TILE - 8)), Color(0.95, 0.8, 0.2))
 			draw_string(ThemeDB.fallback_font, Vector2(stairs * TILE) + Vector2(4, 22), ">", HORIZONTAL_ALIGNMENT_CENTER, TILE - 8, 16, Color.BLACK)
+	if shop.x >= 0 and seen_cells.has(shop):
+		if _shop_tex:
+			draw_texture_rect(_shop_tex, Rect2(Vector2(shop * TILE), Vector2(TILE, TILE)), false)
+		else:
+			draw_rect(Rect2(Vector2(shop * TILE) + Vector2(3, 3), Vector2(TILE - 6, TILE - 6)), Color(0.55, 0.35, 0.8))
+			draw_string(ThemeDB.fallback_font, Vector2(shop * TILE) + Vector2(3, 22), "$", HORIZONTAL_ALIGNMENT_CENTER, TILE - 6, 16, GOLD)
+	for c in coins:
+		if seen_cells.has(c):
+			# One coin centred on the tile; a pile shows up to 3, stacked.
+			var corner := Vector2(c * TILE) + Vector2(TILE - COIN_SIZE, TILE - COIN_SIZE) / 2
+			for i in mini(coins[c], 3):
+				var r := Rect2(corner + Vector2(i * 3, -i * 3), Vector2(COIN_SIZE, COIN_SIZE))
+				if _coin_tex:
+					draw_texture_rect(_coin_tex, r, false)
+				else:
+					draw_circle(r.get_center(), COIN_SIZE / 2.0, GOLD)
 	for c in seen_cells:
 		if not visible_cells.has(c):
 			draw_rect(Rect2(Vector2(c * TILE), Vector2(TILE, TILE)), Color(0, 0, 0, 0.6))
+	if breaking:
+		# Break Wall: outline the walls next to you that can be smashed.
+		for dir in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
+			var c: Vector2i = player.grid_pos + dir
+			if not floor_cells.has(c) and _can_break(c):
+				draw_rect(Rect2(Vector2(c * TILE) + Vector2(1, 1), Vector2(TILE - 2, TILE - 2)), GOLD, false, 2)
 
 
 ## Tile art for the current depth: <name>_<depth>.png, else the nearest
@@ -202,7 +259,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if not (event is InputEventKey and event.pressed):
 		return
-	if event.keycode == KEY_ESCAPE and state != State.LEVEL_UP:
+	if event.keycode == KEY_ESCAPE and breaking:
+		_aim_break_wall(KEY_ESCAPE)
+		return
+	if event.keycode == KEY_ESCAPE and state != State.LEVEL_UP and state != State.SHOP:
 		get_tree().change_scene_to_file("res://scenes/title.tscn")
 		return
 	if state == State.DEAD:
@@ -213,20 +273,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	var acted := false
-	match event.keycode:
-		KEY_UP, KEY_W:
-			acted = _player_step(Vector2i.UP)
-		KEY_DOWN, KEY_S:
-			acted = _player_step(Vector2i.DOWN)
-		KEY_LEFT, KEY_A:
-			acted = _player_step(Vector2i.LEFT)
-		KEY_RIGHT, KEY_D:
-			acted = _player_step(Vector2i.RIGHT)
-		KEY_SPACE, KEY_PERIOD:
-			acted = true
-			_shoot()
-		KEY_1, KEY_2, KEY_3:
-			acted = _use_skill(event.keycode - KEY_1)
+	if breaking:
+		if event.echo:
+			return  # a held skill key shouldn't cancel its own aim
+		acted = _aim_break_wall(event.keycode)
+	elif DIRECTION_KEYS.has(event.keycode):
+		acted = _player_step(DIRECTION_KEYS[event.keycode])
+	else:
+		match event.keycode:
+			KEY_SPACE, KEY_PERIOD:
+				acted = true
+				_shoot()
+			KEY_1, KEY_2, KEY_3:
+				acted = _use_skill(event.keycode - KEY_1)
 	if acted:
 		get_viewport().set_input_as_handled()
 		_end_player_turn()
@@ -235,6 +294,9 @@ func _unhandled_input(event: InputEvent) -> void:
 ## Move, or attack if an enemy is in the way. Returns false if nothing happened.
 func _player_step(dir: Vector2i) -> bool:
 	var target := player.grid_pos + dir
+	if target == shop:
+		_open_shop()  # browsing is free: no turn passes
+		return false
 	var enemy = _enemy_at(target)
 	if enemy:
 		_player_attack(enemy, dir)
@@ -247,13 +309,22 @@ func _player_step(dir: Vector2i) -> bool:
 			_player_attack(far, dir)
 			return true
 	player.move_to(target)
+	_pick_up_coins(target)
 	if target == stairs:
-		depth += 1
-		_log("You descend to depth %d." % depth)
-		_new_floor()
+		_descend()
 	else:
 		_shoot()
 	return true
+
+
+## Next floor, and you get DESCEND_HEAL of your max HP back on the way down.
+func _descend() -> void:
+	depth += 1
+	_new_floor()
+	var before := player.hp
+	player.heal(ceili(player.max_hp * DESCEND_HEAL))
+	var healed := player.hp - before
+	_log("You descend to depth %d%s." % [depth, " and recover %d HP" % healed if healed > 0 else ""])
 
 
 # --- Ranged weapons ------------------------------------------------------------
@@ -385,11 +456,181 @@ func _check_level_up() -> void:
 
 
 func _on_card_chosen(card: Dictionary) -> void:
-	Cards.apply(player, card)
+	_gain_card(card)
 	player.pending_levels -= 1
 	_log("Picked %s." % card.name)
 	_check_level_up()
 	_refresh_hud()
+
+
+## Applies a card from a level-up or the shop, plus what it changes on the map.
+func _gain_card(card: Dictionary) -> void:
+	Cards.apply(player, card)
+	if card.id == "coin_magnet":
+		_magnet_coins()
+	_update_fov()  # Night Vision lights up the floor right away
+
+
+# --- Coins & shop --------------------------------------------------------------
+
+## Tougher enemies are more likely to drop a coin (see Enemy.coin_chance).
+func _drop_coin(e) -> void:
+	if randf() >= e.coin_chance():
+		return
+	if player.coin_magnet:
+		player.coins += 1
+		_fly_coin(e.grid_pos)
+	else:
+		coins[e.grid_pos] = coins.get(e.grid_pos, 0) + 1
+		queue_redraw()
+
+
+func _pick_up_coins(cell: Vector2i) -> void:
+	var n: int = coins.get(cell, 0)
+	if n == 0:
+		return
+	coins.erase(cell)
+	player.coins += n
+	player.popup("+%d coin%s" % [n, "s" if n > 1 else ""], GOLD)
+	queue_redraw()
+
+
+## Coin Magnet pulls in every coin already lying on this floor.
+func _magnet_coins() -> void:
+	for c in coins:
+		player.coins += coins[c]
+		_fly_coin(c)
+	coins.clear()
+	queue_redraw()
+
+
+## A coin that flies from a map tile to the HUD coin counter.
+func _fly_coin(cell: Vector2i) -> void:
+	if _coin_tex == null:
+		return
+	var coin := Sprite2D.new()
+	coin.texture = _coin_tex
+	coin.scale = Vector2(COIN_SIZE, COIN_SIZE) / _coin_tex.get_size()
+	coin.position = Vector2(cell * TILE) + Vector2(TILE, TILE) / 2
+	_hud_layer.add_child(coin)
+	var tw := coin.create_tween()
+	tw.tween_property(coin, "position", _purse.global_position + _purse.size / 2, 0.5) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_callback(coin.queue_free)
+
+
+## Called when the last enemy dies: the stairs appear, and sometimes a shop.
+func _floor_cleared() -> void:
+	var cells := floor_cells.keys().filter(func(c): return _dist(c, player.grid_pos) >= 5 and not coins.has(c))
+	stairs = cells.pick_random() if not cells.is_empty() else player.grid_pos
+	_log("The floor is clear. Stairs (>) appeared!")
+	_maybe_spawn_shop()
+	queue_redraw()
+
+
+## From depth 2 a cleared floor gets a shopkeeper SHOP_CHANCE of the time, and
+## never 3 floors in a row without one. It stands where floor is all around
+## it, so it can never block a corridor, and can't be hurt.
+func _maybe_spawn_shop() -> void:
+	if depth < SHOP_FIRST_DEPTH:
+		return
+	if floors_without_shop < 2 and randf() >= SHOP_CHANCE:
+		floors_without_shop += 1
+		return
+	var spots := floor_cells.keys().filter(_good_shop_spot)
+	if spots.is_empty():
+		floors_without_shop += 1
+		return
+	floors_without_shop = 0
+	shop = spots.pick_random()
+	astar.set_point_solid(shop, true)
+	shop_stock = Cards.roll_choices(player).map(func(c): return {card = c, sold = false})
+	_log("A shopkeeper ($) is selling cards on this floor!")
+
+
+func _good_shop_spot(c: Vector2i) -> bool:
+	if c == stairs or coins.has(c) or _dist(c, player.grid_pos) < 2:
+		return false
+	for x in range(c.x - 1, c.x + 2):
+		for y in range(c.y - 1, c.y + 2):
+			if not floor_cells.has(Vector2i(x, y)):
+				return false
+	return true
+
+
+func _open_shop() -> void:
+	state = State.SHOP
+	_shop_ui.open(player, shop_stock)
+
+
+func _on_card_bought(card: Dictionary, price: int) -> void:
+	player.coins -= price
+	_log("Bought %s for %d coins." % [card.name, price])
+	_gain_card(card)
+	_refresh_hud()
+
+
+func _on_shop_closed() -> void:
+	state = State.PLAYER_TURN
+	_refresh_hud()
+
+
+# --- Break Wall ------------------------------------------------------------------
+
+## After the Break Wall key, the next key picks the wall: a direction smashes
+## it, anything else (Esc, Space, 1-3) cancels without using a turn.
+func _aim_break_wall(key: int) -> bool:
+	breaking = false
+	queue_redraw()
+	if not DIRECTION_KEYS.has(key):
+		_log("Break Wall cancelled.")
+		_refresh_hud()
+		return false
+	var dir: Vector2i = DIRECTION_KEYS[key]
+	var cell := player.grid_pos + dir
+	if floor_cells.has(cell):
+		_log("There's no wall there.")
+	elif not _can_break(cell):
+		_log("That wall is too strong to break.")
+	else:
+		floor_cells[cell] = true
+		astar.set_point_solid(cell, false)
+		player.bump(dir)
+		_rubble(cell)
+		_log("You smash through the wall!")
+		var s: Dictionary = player.find_skill("break_wall")
+		s.ready_in = s.cooldown + 1
+		_update_fov()
+		return true
+	_refresh_hud()
+	return false
+
+
+## The map's outer wall and the 4 corner tiles around every room can't break.
+func _can_break(cell: Vector2i) -> bool:
+	if cell.x <= 0 or cell.y <= 0 or cell.x >= W - 1 or cell.y >= H - 1:
+		return false
+	for r in rooms:
+		var g := r.grow(1)
+		if cell in [g.position, Vector2i(g.end.x - 1, g.position.y), Vector2i(g.position.x, g.end.y - 1), g.end - Vector2i.ONE]:
+			return false
+	return true
+
+
+## A few bits of stone that burst out of a smashed wall.
+func _rubble(cell: Vector2i) -> void:
+	var col := Color(0.55, 0.5, 0.45)
+	for i in 8:
+		var bit := ColorRect.new()
+		bit.color = col.darkened(randf() * 0.4)
+		bit.size = Vector2(4, 4)
+		bit.position = Vector2(cell * TILE) + Vector2(TILE, TILE) / 2 - bit.size / 2
+		bit.z_index = 5
+		add_child(bit)
+		var tw := bit.create_tween()
+		tw.tween_property(bit, "position", bit.position + Vector2(randf_range(-16, 16), randf_range(-16, 16)), 0.3)
+		tw.parallel().tween_property(bit, "modulate:a", 0.0, 0.3)
+		tw.tween_callback(bit.queue_free)
 
 
 # --- Combat ------------------------------------------------------------------
@@ -496,6 +737,12 @@ func _use_skill(i: int) -> bool:
 			player.shield_turns = 2
 			player.queue_redraw()
 			_log("Your skin turns to stone.")
+		"break_wall":
+			breaking = true
+			_log("Break Wall: press a direction to smash that wall (any other key cancels).")
+			_refresh_hud()
+			queue_redraw()
+			return false  # the turn is used once a wall breaks
 		"chain_lightning":
 			var target = _nearest_enemy(FIREBALL_RANGE)
 			if target == null:
@@ -522,12 +769,10 @@ func _on_enemy_died(e) -> void:
 	player.gain_xp(e.xp_value)
 	if player.kill_heal > 0 and player.is_alive():
 		player.heal(player.kill_heal)
+	_drop_coin(e)
 	e.queue_free()
 	if enemies.is_empty():
-		var cells := floor_cells.keys().filter(func(c): return _dist(c, player.grid_pos) >= 5)
-		stairs = cells.pick_random() if not cells.is_empty() else player.grid_pos
-		_log("The floor is clear. Stairs (>) appeared!")
-		queue_redraw()
+		_floor_cleared()
 
 
 func _on_player_died(_p) -> void:
@@ -538,6 +783,10 @@ func _on_player_died(_p) -> void:
 		_log("Phoenix Heart! You rise again.")
 		return
 	state = State.DEAD
+	breaking = false
+	if player.coins > 0:
+		_log("You lost your %d coin%s." % [player.coins, "s" if player.coins > 1 else ""])
+		player.coins = 0
 	_log("You died on depth %d at level %d. Press R to restart or Esc for the menu." % [depth, player.level])
 
 
@@ -608,6 +857,7 @@ func _log(msg: String) -> void:
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
+	_hud_layer = layer
 	var hud_size := Vector2(W * TILE, 720 - H * TILE)
 	var ink := Color.WHITE
 	if ResourceLoader.exists("res://art/hud.png"):
@@ -631,13 +881,35 @@ func _build_hud() -> void:
 	_hud.add_theme_constant_override("line_spacing", -2)
 	_hud.add_theme_color_override("font_color", ink)
 	layer.add_child(_hud)
+	# Coin counter in the top-right corner of the HUD.
+	var purse := HBoxContainer.new()
+	purse.alignment = BoxContainer.ALIGNMENT_END
+	purse.position = Vector2(W * TILE - 160, H * TILE + 10)
+	purse.size = Vector2(130, 32)
+	layer.add_child(purse)
+	_purse = TextureRect.new()
+	_purse.texture = _coin_tex
+	_purse.custom_minimum_size = Vector2(32, 32)
+	_purse.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_purse.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_purse.visible = _coin_tex != null
+	purse.add_child(_purse)
+	_purse_label = Label.new()
+	_purse_label.add_theme_font_size_override("font_size", 20)
+	_purse_label.add_theme_color_override("font_color", ink)
+	purse.add_child(_purse_label)
 	_level_ui = LevelUpUI.new()
 	_level_ui.card_chosen.connect(_on_card_chosen)
 	add_child(_level_ui)
+	_shop_ui = ShopUI.new()
+	_shop_ui.bought.connect(_on_card_bought)
+	_shop_ui.closed.connect(_on_shop_closed)
+	add_child(_shop_ui)
 
 
 func _refresh_hud() -> void:
 	_update_reticle()
+	_purse_label.text = str(player.coins) if _coin_tex else "Coins %d" % player.coins
 	var skill_txt := []
 	for i in player.skills.size():
 		var s: Dictionary = player.skills[i]

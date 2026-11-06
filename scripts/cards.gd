@@ -38,6 +38,10 @@ const POOL := [
 		desc = "The first time you would die, revive with half your HP."},
 	{id = "titans_grip", name = "Titan's Grip", type = "passive", rarity = "legendary", max_stacks = 1,
 		desc = "+5 attack and +10 max HP."},
+	{id = "night_vision", name = "Night Vision", type = "passive", rarity = "legendary", max_stacks = 1,
+		desc = "See the whole floor and every enemy on it. No more fog."},
+	{id = "coin_magnet", name = "Coin Magnet", type = "passive", rarity = "epic", max_stacks = 1,
+		desc = "Coins fly straight to you instead of dropping on the ground."},
 	# Skills (active, used with keys 1-3, cost a turn, have a cooldown)
 	{id = "fireball", name = "Fireball", type = "skill", rarity = "common", cooldown = 4, max_stacks = 3,
 		desc = "Blast the nearest enemy within 6 tiles for attack +3."},
@@ -49,6 +53,8 @@ const POOL := [
 		desc = "Block all damage for the next 2 enemy turns."},
 	{id = "chain_lightning", name = "Chain Lightning", type = "skill", rarity = "epic", cooldown = 6, max_stacks = 3,
 		desc = "Zap the nearest enemy, then jump to 2 more nearby, for attack damage each."},
+	{id = "break_wall", name = "Break Wall", type = "skill", rarity = "legendary", cooldown = 4, max_stacks = 3,
+		desc = "Smash a wall next to you into floor to make a new path. Room corners and the map edge can't break."},
 	# Weapons: one equipped at a time, picking another replaces it. Icon is
 	# art/weapon_<id>.png. Optional keys change the basic attack (see main.gd
 	# _player_attack): atk, crit, hits + hit_mult, reach, pierce, sweep,
@@ -66,7 +72,7 @@ const POOL := [
 	{id = "mythril_blade", name = "Mythril Blade", type = "weapon", rarity = "epic", max_stacks = 1,
 		atk = 4, crit = 0.2, desc = "+4 attack and +20% crit chance."},
 	{id = "dragon_slayer", name = "Dragon Slayer", type = "weapon", rarity = "legendary", max_stacks = 1,
-		atk = 6, giant_slayer = true, desc = "+6 attack. Double damage to big enemies (15+ max HP)."},
+		atk = 6, giant_slayer = true, desc = "+6 attack. Double damage to enemies with 15 or more max HP."},
 	{id = "excalibur", name = "Excalibur", type = "weapon", rarity = "legendary", max_stacks = 1,
 		atk = 5, cleave = true, desc = "+5 attack. Every attack also hits all enemies around you."},
 	{id = "bow", name = "Bow", type = "weapon", rarity = "rare", max_stacks = 1,
@@ -76,22 +82,34 @@ const POOL := [
 ]
 
 
-## Picks up to `count` different cards, weighted by rarity.
+## Picks up to `count` different cards, weighted by rarity. Once you hold a
+## weapon, at least one card is never a weapon, so a level-up can't force a swap.
 static func roll_choices(player, count := 3) -> Array:
 	var available := POOL.filter(func(c): return can_offer(player, c))
 	var picked := []
 	while picked.size() < count and not available.is_empty():
-		var total := 0
-		for c in available:
-			total += RARITY_WEIGHTS[c.rarity]
-		var roll := randi() % total
-		for c in available:
-			roll -= RARITY_WEIGHTS[c.rarity]
-			if roll < 0:
-				picked.append(c)
-				available.erase(c)
-				break
+		var options := available
+		if picked.size() == count - 1 and not player.weapon.is_empty() \
+				and picked.all(func(c): return c.type == "weapon"):
+			var others := available.filter(func(c): return c.type != "weapon")
+			if not others.is_empty():
+				options = others
+		var card: Dictionary = _weighted_pick(options)
+		picked.append(card)
+		available.erase(card)
 	return picked
+
+
+static func _weighted_pick(cards: Array) -> Dictionary:
+	var total := 0
+	for c in cards:
+		total += RARITY_WEIGHTS[c.rarity]
+	var roll := randi() % total
+	for c in cards:
+		roll -= RARITY_WEIGHTS[c.rarity]
+		if roll < 0:
+			return c
+	return cards.back()
 
 
 static func can_offer(player, card: Dictionary) -> bool:
@@ -146,6 +164,10 @@ static func apply(player, card: Dictionary) -> void:
 			player.kill_heal += 3
 		"phoenix_heart":
 			player.revives += 1
+		"night_vision":
+			player.night_vision = true
+		"coin_magnet":
+			player.coin_magnet = true
 		"titans_grip":
 			player.attack += 5
 			player.max_hp += 10
