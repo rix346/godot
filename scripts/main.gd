@@ -544,7 +544,7 @@ func _maybe_spawn_shop() -> void:
 	floors_without_shop = 0
 	shop = spots.pick_random()
 	astar.set_point_solid(shop, true)
-	shop_stock = Cards.roll_choices(player).map(func(c): return {card = c, sold = false})
+	shop_stock = _roll_shop_stock()
 	_log("A shopkeeper ($) is selling cards on this floor!")
 
 
@@ -568,6 +568,18 @@ func _on_card_bought(card: Dictionary, price: int) -> void:
 	_log("Bought %s for %d coins." % [card.name, price])
 	_gain_card(card)
 	_refresh_hud()
+
+
+## Rerolling swaps every card in the shop, sold ones too, for new ones.
+func _on_shop_rerolled(price: int) -> void:
+	player.coins -= price
+	shop_stock.assign(_roll_shop_stock())  # in place: the shop screen shares this array
+	_log("Rerolled the shop for %d coins." % price)
+	_refresh_hud()
+
+
+func _roll_shop_stock() -> Array:
+	return Cards.roll_choices(player).map(func(c): return {card = c, sold = false})
 
 
 func _on_shop_closed() -> void:
@@ -903,6 +915,7 @@ func _build_hud() -> void:
 	add_child(_level_ui)
 	_shop_ui = ShopUI.new()
 	_shop_ui.bought.connect(_on_card_bought)
+	_shop_ui.rerolled.connect(_on_shop_rerolled)
 	_shop_ui.closed.connect(_on_shop_closed)
 	add_child(_shop_ui)
 

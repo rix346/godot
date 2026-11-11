@@ -14,7 +14,9 @@ func _initialize():
 			main._level_ui._pick(randi() % main._level_ui._cards.size()); picks += 1
 			continue
 		if main.state == main.State.SHOP:
-			if randf() < 0.5: main._shop_ui._pick(randi() % main._shop_ui._cards.size())
+			var r = randf()
+			if r < 0.4 and main._shop_ui._cards.size() > 0: main._shop_ui._pick(randi() % main._shop_ui._cards.size())
+			elif r < 0.6: main._shop_ui._try_reroll()
 			else: main._shop_ui._close()
 			continue
 		var ev = InputEventKey.new(); ev.pressed = true
