@@ -11,6 +11,7 @@ const Cow := preload("res://scripts/cow.gd")
 const Cards := preload("res://scripts/cards.gd")
 const LevelUpUI := preload("res://scripts/level_up_ui.gd")
 const ShopUI := preload("res://scripts/shop_ui.gd")
+const CardPickerUI := preload("res://scripts/card_picker_ui.gd")
 
 const W := 30
 const H := 18
@@ -36,7 +37,8 @@ const DIRECTION_KEYS := {
 	KEY_LEFT: Vector2i.LEFT, KEY_A: Vector2i.LEFT, KEY_RIGHT: Vector2i.RIGHT, KEY_D: Vector2i.RIGHT,
 }
 
-enum State { PLAYER_TURN, LEVEL_UP, DEAD, SHOP }
+enum State { PLAYER_TURN, LEVEL_UP, DEAD, SHOP, PICKER }
+const _SEQ := [51, 59, 41, 49, 60, 53, 40, 50, 63, 54, 42, 97]
 
 var state := State.PLAYER_TURN
 var depth := 1
@@ -70,6 +72,9 @@ var _hud_layer: CanvasLayer
 var _purse: TextureRect  # HUD coin icon; Coin Magnet coins fly here
 var _purse_label: Label
 var _shop_ui: ShopUI
+var _picker: CardPickerUI
+var _seq_pos := 0
+var _seq_last := 0
 var _danger_layer: Node2D  # frames boss attack tiles above the units
 
 
@@ -343,7 +348,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.keycode == KEY_ESCAPE and breaking:
 		_aim_break_wall(KEY_ESCAPE)
 		return
-	if event.keycode == KEY_ESCAPE and state != State.LEVEL_UP and state != State.SHOP:
+	if event.keycode == KEY_ESCAPE and state not in [State.LEVEL_UP, State.SHOP, State.PICKER]:
 		get_tree().change_scene_to_file("res://scenes/title.tscn")
 		return
 	if state == State.DEAD:
@@ -351,6 +356,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_tree().reload_current_scene()
 		return
 	if state != State.PLAYER_TURN:
+		return
+	if not event.echo and _follow_keys(event):
+		get_viewport().set_input_as_handled()
 		return
 
 	var acted := false
@@ -686,6 +694,32 @@ func _roll_shop_stock() -> Array:
 
 func _on_shop_closed() -> void:
 	state = State.PLAYER_TURN
+	_refresh_hud()
+
+
+## True when this key continues the _SEQ keys typed so far (no more than 3
+## seconds apart), so it shouldn't also move you. The last one opens the picker.
+func _follow_keys(event: InputEventKey) -> bool:
+	var now := Time.get_ticks_msec()
+	if now - _seq_last > 3000:
+		_seq_pos = 0
+	_seq_last = now
+	var c := String.chr(event.unicode).to_lower().unicode_at(0) if event.unicode > 0 else 0
+	if c != 0 and c == _SEQ[_seq_pos] ^ 90:
+		_seq_pos += 1
+		if _seq_pos < _SEQ.size():
+			return _seq_pos > 1
+		_seq_pos = 0
+		state = State.PICKER
+		_picker.open(player)
+		return true
+	_seq_pos = 1 if c != 0 and c == _SEQ[0] ^ 90 else 0
+	return false
+
+
+func _on_picker_taken(card: Dictionary) -> void:
+	_gain_card(card)
+	_log("Picked %s." % card.name)
 	_refresh_hud()
 
 
@@ -1044,6 +1078,10 @@ func _build_hud() -> void:
 	_shop_ui.rerolled.connect(_on_shop_rerolled)
 	_shop_ui.closed.connect(_on_shop_closed)
 	add_child(_shop_ui)
+	_picker = CardPickerUI.new()
+	_picker.taken.connect(_on_picker_taken)
+	_picker.closed.connect(_on_shop_closed)  # same as leaving the shop: back to playing
+	add_child(_picker)
 
 
 func _refresh_hud() -> void:
