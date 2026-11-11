@@ -7,6 +7,7 @@ extends "res://scripts/enemy.gd"
 ## - Stomp: it stands still while the 5x5 area around it is red, and after 3
 ##   turns that area explodes.
 ## It only walks toward you every other turn, so it's easier to get away from.
+## Its thick hide stops most arrows: bows only do ARROW_DAMAGE of their damage.
 
 enum Plan { NONE, LINE, DASH, STOMP }
 
@@ -18,6 +19,7 @@ const LINE_MULT := 1.5  # damage of the big attacks, times the Cow's attack
 const DASH_MULT := 2.0
 const STOMP_MULT := 2.5
 const COINS := 5
+const ARROW_DAMAGE := 0.2  # Bow and Starlight shots do 20% damage to it
 const RED := Color(1, 0.15, 0.1)
 const ORANGE := Color(1, 0.55, 0.1)
 
@@ -36,6 +38,7 @@ func setup_boss(depth: int) -> void:
 	hp = max_hp
 	attack = depth - 1
 	xp_value = 10 * depth
+	arrow_mult = ARROW_DAMAGE
 	load_art("cow")
 
 

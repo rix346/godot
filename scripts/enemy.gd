@@ -33,6 +33,7 @@ var slow := false
 var poison := 0
 var resting := false
 var elite := false
+var arrow_mult := 1.0  # share of arrow damage it takes (the Cow takes less)
 var danger: Array[Vector2i] = []  # tiles a boss attack is about to hit, drawn by main.gd
 var danger_color := Color(1, 0.2, 0.15)
 

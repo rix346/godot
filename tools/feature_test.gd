@@ -3,7 +3,8 @@ extends SceneTree
 # fires each skill, and plays turns until death or a turn cap. Before that it
 # checks the rules for weapon offers, the stairs heal, coins, the shop and its
 # reroll, Night Vision, Break Wall, the enemy cap, mix and elites, boss floors
-# and each of the Cow's attacks, and prints FAIL for anything that's broken.
+# and each of the Cow's attacks, double melee damage, natural healing and the
+# Cow's arrow resistance, and prints FAIL for anything that's broken.
 const Cards := preload("res://scripts/cards.gd")
 const Enemy := preload("res://scripts/enemy.gd")
 const Cow := preload("res://scripts/cow.gd")
@@ -31,6 +32,7 @@ func _initialize():
 	await process_frame
 	check_rules(main)
 	check_depth_rules(main)
+	check_combat_rules(main)
 
 	main.depth = 3
 	main._new_floor()
@@ -351,4 +353,78 @@ func check_depth_rules(main) -> void:
 	cow.take_damage(cow.hp)
 	check(main.enemies.is_empty() and main.stairs.x >= 0, "killing the Cow brings the stairs")
 	check(main.coins.get(cow.grid_pos, 0) == Cow.COINS, "the Cow drops %d coins" % Cow.COINS)
+	main.state = main.State.PLAYER_TURN
+
+
+func check_combat_rules(main) -> void:
+	var player = main.player
+	main.state = main.State.PLAYER_TURN
+	main.depth = 3
+	main._new_floor()
+	for e in main.enemies.duplicate():
+		main.enemies.erase(e)
+		e.free()
+	main.floor_cells.clear()
+	for x in range(1, main.W - 1):
+		for y in range(1, main.H - 1):
+			main.floor_cells[Vector2i(x, y)] = true
+	main._build_astar()
+	player.place(Vector2i(10, 8))
+	player.max_hp = 100
+	player.hp = 100
+	player.berserk = 0.0
+	var dummy := Enemy.new()
+	dummy.setup(Enemy.KINDS[2], 3)
+	dummy.max_hp = 9999
+	dummy.hp = 9999
+	main._add_enemy(dummy, Vector2i(11, 8))
+
+	# Melee weapons and fists hit for double your attack.
+	for w in [{}, card("sword"), card("dagger")]:
+		player.equip(w)
+		player.crit_chance = 0.0
+		var before: int = dummy.hp
+		main._player_attack(dummy, Vector2i.RIGHT)
+		var per_hit := ceili(player.attack * w.get("hit_mult", 1.0) * main.MELEE_MULT)
+		check(before - dummy.hp == per_hit * w.get("hits", 1), "%s hits for double damage (%d)" % [w.get("name", "fists"), before - dummy.hp])
+
+	# Bows are unchanged: shots and walking into an enemy both stay 1x.
+	player.equip(card("bow"))
+	player.crit_chance = 0.0
+	var hp: int = dummy.hp
+	main._player_attack(dummy, Vector2i.RIGHT)
+	check(hp - dummy.hp == player.attack, "a bow's melee hit stays 1x")
+	hp = dummy.hp
+	main._shoot()
+	check(hp - dummy.hp == ceili(player.attack * card("bow").shot_mult), "bow shots are unchanged")
+
+	# Arrows only do 20% damage to the Cow.
+	main.enemies.erase(dummy)
+	dummy.free()
+	var cow := Cow.new()
+	cow.setup_boss(5)
+	main._add_enemy(cow, Vector2i(12, 8))
+	player.attack = 40
+	hp = cow.hp
+	main._shoot()
+	check(hp - cow.hp == roundi(ceili(40 * card("bow").shot_mult) * Cow.ARROW_DAMAGE), "arrows do 20%% damage to the Cow (%d)" % (hp - cow.hp))
+	player.attack = 1
+	hp = cow.hp
+	main._shoot()
+	check(hp - cow.hp == 1, "an arrow always does at least 1 damage")
+	main.enemies.erase(cow)
+	cow.free()
+
+	# Everyone heals 1 HP every 10 turns, and Second Wind still adds more.
+	player.regen_every = 0
+	player.hp = 50
+	for i in 20:
+		player.end_turn()
+	check(player.hp == 52, "natural healing: 1 HP every 10 turns (%d)" % player.hp)
+	Cards.apply(player, card("second_wind"))
+	player.hp = 50
+	for i in 30:
+		player.end_turn()
+	check(player.hp == 50 + 3 + 30 / player.regen_every, "Second Wind stacks with natural healing (%d)" % player.hp)
+	player.equip({})
 	main.state = main.State.PLAYER_TURN

@@ -26,6 +26,7 @@ const SIGHT := 7
 const FIREBALL_RANGE := 6
 const CHAIN_JUMP_RANGE := 3
 const DESCEND_HEAL := 0.3  # part of max HP you get back on every trip down the stairs
+const MELEE_MULT := 2  # walking into an enemy hits for 2x your attack, unless you hold a ranged weapon
 const SHOP_CHANCE := 0.4  # chance a cleared floor gets a shopkeeper (from depth 2)
 const SHOP_FIRST_DEPTH := 2
 const COIN_SIZE := 16  # coins on the ground are drawn at half a tile
@@ -429,7 +430,8 @@ func _shoot() -> void:
 		target = _nearest_shootable(targets)
 	for e in targets:
 		_zap(player.grid_pos, e.grid_pos, Color(1, 0.95, 0.7))
-		_hit(player, e, ceili(player.attack * w.get("shot_mult", 1.0)), "shot")
+		var dmg := ceili(player.attack * w.get("shot_mult", 1.0))
+		_hit(player, e, maxi(1, roundi(dmg * e.arrow_mult)), "shot")  # bosses shrug off most of it
 
 
 ## The mouse-picked enemy while it can still be shot, else the nearest one.
@@ -765,8 +767,11 @@ func _attack(attacker, defender, ranged := false) -> void:
 
 
 ## Basic attack with the equipped weapon (see the weapon keys in cards.gd).
+## Melee weapons and fists hit for MELEE_MULT times your attack; walking into
+## an enemy while holding a bow is a plain 1x hit.
 func _player_attack(target, dir: Vector2i) -> void:
 	var w: Dictionary = player.weapon
+	var mult: float = w.get("hit_mult", 1.0) * (1 if w.get("ranged", 0) > 0 else MELEE_MULT)
 	var targets := [target]
 	if w.get("pierce", false):
 		targets.append(_enemy_at(target.grid_pos + dir))
@@ -786,7 +791,7 @@ func _player_attack(target, dir: Vector2i) -> void:
 		for i in w.get("hits", 1):
 			if not e.is_alive():
 				break
-			var base := ceili(player.attack * w.get("hit_mult", 1.0))
+			var base := ceili(player.attack * mult)
 			if w.get("giant_slayer", false) and e.max_hp >= 15:
 				base *= 2
 			_hit(player, e, base, "hit")
