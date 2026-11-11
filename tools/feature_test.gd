@@ -2,9 +2,11 @@ extends SceneTree
 # Headless check of every card and skill on a deep floor: applies all cards,
 # fires each skill, and plays turns until death or a turn cap. Before that it
 # checks the rules for weapon offers, the stairs heal, coins, the shop and its
-# reroll, Night Vision and Break Wall, and prints FAIL for anything that's broken.
+# reroll, Night Vision, Break Wall, the enemy cap, mix and elites, boss floors
+# and each of the Cow's attacks, and prints FAIL for anything that's broken.
 const Cards := preload("res://scripts/cards.gd")
 const Enemy := preload("res://scripts/enemy.gd")
+const Cow := preload("res://scripts/cow.gd")
 const ShopUI := preload("res://scripts/shop_ui.gd")
 
 var failures := 0
@@ -28,6 +30,7 @@ func _initialize():
 	root.add_child(main)
 	await process_frame
 	check_rules(main)
+	check_depth_rules(main)
 
 	main.depth = 3
 	main._new_floor()
@@ -151,7 +154,9 @@ func check_rules(main) -> void:
 	# Break Wall smashes a wall next to you, but not the outer wall or room corners.
 	var bw := card("break_wall")
 	player.skills.clear()
-	player.card_stacks.erase("break_wall")
+	for c in Cards.POOL:
+		if c.type == "skill":
+			player.card_stacks.erase(c.id)
 	main._gain_card(bw)
 	check(not main._can_break(Vector2i(0, 5)), "outer wall is unbreakable")
 	check(not main._can_break(main.rooms[0].grow(1).position), "room corner is unbreakable")
@@ -180,3 +185,170 @@ func check_rules(main) -> void:
 	player.coins = 9
 	player.take_damage(player.hp)
 	check(main.state == main.State.DEAD and player.coins == 0, "coins lost on death")
+
+
+func check_depth_rules(main) -> void:
+	var player = main.player
+	main.state = main.State.PLAYER_TURN
+	player.hp = player.max_hp
+
+	# Tough Hide and Sharpened Blade can be picked forever.
+	for id in ["tough_hide", "sharpened_blade"]:
+		for i in 12:
+			Cards.apply(player, card(id))
+		check(Cards.can_offer(player, card(id)), "%s should have no limit" % id)
+
+	# 3 + 2 enemies per depth, capped at 20 (reached on depth 9).
+	main.depth = 8
+	main._new_floor()
+	check(main.enemies.size() == 19, "depth 8 has 19 enemies (%d)" % main.enemies.size())
+	check(main.enemies.all(func(e): return not e.elite), "no elites before depth 9")
+	main.depth = 29
+	main._new_floor()
+	check(main.enemies.size() == main.MAX_ENEMIES, "depth 29 is capped at %d enemies (%d)" % [main.MAX_ENEMIES, main.enemies.size()])
+	check(main.enemies.any(func(e): return e.elite), "depth 29 has elites")
+
+	# The mix: even on depth 1, mostly tough enemies deep down.
+	for d in [1, 30]:
+		var counts := {}
+		for i in 3000:
+			var kind: String = Enemy.random_kind(d).name
+			counts[kind] = counts.get(kind, 0) + 1
+		if d == 1:
+			check(counts.values().all(func(n): return n > 800), "depth 1 mix should be even (%s)" % counts)
+		else:
+			check(counts.get("Knight", 0) > 10 * counts.get("Rat", 0) + 10, "knights should be far more common than rats on depth 30 (%s)" % counts)
+
+	# Elites: a growing share from depth 9, double HP, more attack, double XP, always a coin.
+	check(Enemy.elite_chance(8) == 0.0 and Enemy.elite_chance(9) > 0.0 and Enemy.elite_chance(100) == Enemy.ELITE_MAX, "elite chance")
+	var plain := Enemy.new()
+	plain.setup(Enemy.KINDS[0], 12)
+	var elite := Enemy.new()
+	elite.setup(Enemy.KINDS[0], 12)
+	elite.make_elite()
+	check(elite.max_hp == plain.max_hp * 2 and elite.hp == elite.max_hp, "elite HP")
+	check(elite.attack > plain.attack and elite.xp_value == plain.xp_value * 2, "elite attack and XP")
+	check(range(50).all(func(i): return elite.coin_drop() == 1), "elites always drop a coin")
+	plain.free()
+	elite.free()
+
+	# Every 5th depth is a cave with only the Cow, drawn with the depth 1 tiles.
+	main.depth = 4
+	main._descend()
+	check(main.depth == 5 and main.is_boss_floor(), "depth 5 is a boss floor")
+	check(main.enemies.size() == 1 and main.enemies[0] is Cow, "the boss floor has only the Cow")
+	check(main.rooms.is_empty() and player.grid_pos == Vector2i(main.W / 2, main.H / 2), "the boss floor is a cave")
+	check(main._floor_tex == main._depth_art("floor", 1) and main._wall_tex == main._depth_art("wall", 1), "the boss floor uses the depth 1 tiles")
+	check(main._dist(main.enemies[0].grid_pos, player.grid_pos) >= main.BOSS_SPAWN_DIST, "the Cow starts away from you")
+	main._carve_map()
+	check(not main.rooms.is_empty(), "normal floors still have rooms")
+
+	# The Cow's attacks, in an open arena so walls don't get in the way.
+	var cow = main.enemies[0]
+	main.floor_cells.clear()
+	for x in range(1, main.W - 1):
+		for y in range(1, main.H - 1):
+			main.floor_cells[Vector2i(x, y)] = true
+	main._build_astar()
+	player.max_hp = 500
+	player.hp = 500
+	player.armor = 0
+	player.thorns = 0
+	player.shield_turns = 0
+
+	# Line blast: you're hit if you stay in the red line, not if you step out.
+	cow.place(Vector2i(5, 8))
+	player.place(Vector2i(10, 8))
+	cow.plan_line(main)
+	check(cow.danger.has(player.grid_pos) and cow.plan_turns == 1, "the line blast marks your row or column")
+	var row: bool = cow.danger.has(Vector2i(11, 8))
+	check(row or cow.danger.has(Vector2i(10, 9)), "the line runs out to the walls")
+	var hp: int = player.hp
+	player.place(Vector2i(10, 9) if row else Vector2i(11, 8))
+	cow.boss_turn(main)
+	check(player.hp == hp and cow.plan == Cow.Plan.NONE and cow.danger.is_empty(), "stepping out of the line dodges it")
+	cow.plan_line(main)
+	cow.boss_turn(main)
+	check(player.hp == hp - ceili(cow.attack * Cow.LINE_MULT), "standing in the line gets you blasted (%d -> %d)" % [hp, player.hp])
+
+	# Charge: it aims one step ahead of the way you're walking.
+	hp = player.hp
+	cow.place(Vector2i(4, 8))
+	player.place(Vector2i(9, 8))
+	main.last_step = Vector2i.RIGHT
+	cow.plan_dash(main)
+	check(cow.plan == Cow.Plan.DASH and cow.danger.back() == Vector2i(10, 8), "the charge aims where you're heading (%s)" % [cow.danger])
+	player.place(Vector2i(10, 8))  # you kept walking right
+	cow.boss_turn(main)
+	check(cow.grid_pos == Vector2i(9, 8) and player.hp == hp - ceili(cow.attack * Cow.DASH_MULT), "walking into the charge gets you rammed")
+	hp = player.hp
+	cow.place(Vector2i(4, 8))
+	player.place(Vector2i(9, 8))
+	main.last_step = Vector2i.ZERO
+	cow.plan_dash(main)
+	player.place(Vector2i(9, 9))  # you stepped aside
+	cow.boss_turn(main)
+	check(cow.grid_pos == Vector2i(9, 8) and player.hp == hp, "stepping aside dodges the charge")
+	var line := Cow.walk_line(Vector2i(0, 0), Vector2i(3, 2))
+	var steps_ok: bool = line.size() == 5 and line.back() == Vector2i(3, 2)
+	var prev := Vector2i.ZERO
+	for c in line:
+		steps_ok = steps_ok and main._dist(prev, c) == 1
+		prev = c
+	check(steps_ok, "a charge moves one tile up, down, left or right at a time (%s)" % [line])
+
+	# Stomp: 3 turns of warning, then the 5x5 around the Cow explodes.
+	hp = player.hp
+	cow.place(Vector2i(10, 8))
+	player.place(Vector2i(11, 8))
+	cow.plan_stomp(main)
+	check(cow.danger.size() == 25 and cow.danger.has(player.grid_pos), "the stomp marks the 5x5 area")
+	cow.boss_turn(main)
+	cow.boss_turn(main)
+	check(player.hp == hp and cow.plan == Cow.Plan.STOMP and cow.plan_turns == 1 and cow.grid_pos == Vector2i(10, 8), "the stomp waits 3 turns and the Cow stays still")
+	cow.boss_turn(main)
+	check(player.hp == hp - ceili(cow.attack * Cow.STOMP_MULT) and cow.plan == Cow.Plan.NONE, "staying close to the stomp hurts")
+	hp = player.hp
+	cow.plan_stomp(main)
+	player.place(Vector2i(13, 8))
+	for i in 3:
+		cow.boss_turn(main)
+	check(player.hp == hp, "getting 3 tiles away dodges the stomp")
+
+	# Between big attacks it hits you up close, and only walks every other turn.
+	cow.special_in = 99
+	hp = player.hp
+	player.place(Vector2i(11, 8))
+	cow.boss_turn(main)
+	check(player.hp == hp - cow.attack, "the Cow hits you up close")
+	player.place(Vector2i(16, 8))
+	var moves := 0
+	for i in 4:
+		var before: Vector2i = cow.grid_pos
+		cow.boss_turn(main)
+		if cow.grid_pos != before:
+			moves += 1
+	check(moves == 2, "the Cow walks every other turn (%d of 4)" % moves)
+
+	# Big attacks come back after a few turns, but only when it can see you.
+	cow.special_in = 1
+	cow.place(Vector2i(10, 8))
+	player.place(Vector2i(14, 8))
+	main.floor_cells.erase(Vector2i(12, 8))
+	cow.boss_turn(main)
+	check(cow.plan == Cow.Plan.NONE, "no big attack through a wall")
+	main.floor_cells[Vector2i(12, 8)] = true
+	cow.special_in = 1
+	cow.place(Vector2i(10, 8))
+	cow.boss_turn(main)
+	check(cow.plan != Cow.Plan.NONE and not cow.danger.is_empty(), "a big attack when it sees you")
+	cow.plan = Cow.Plan.NONE
+	cow.danger.clear()
+
+	# Killing it drops a pile of coins and brings the stairs.
+	player.coin_magnet = false
+	main.coins.clear()
+	cow.take_damage(cow.hp)
+	check(main.enemies.is_empty() and main.stairs.x >= 0, "killing the Cow brings the stairs")
+	check(main.coins.get(cow.grid_pos, 0) == Cow.COINS, "the Cow drops %d coins" % Cow.COINS)
+	main.state = main.State.PLAYER_TURN

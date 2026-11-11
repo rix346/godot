@@ -1,10 +1,10 @@
 # Dungeons: To The Bottom
 
-A turn-based dungeon crawler made in Godot. Fight your way down an endless dungeon, one floor at a time. Every time you level up, pick 1 of 3 cards (passives, skills or weapons) and build a different hero each run. Collect coins and spend them at the shopkeeper for even more cards.
+A turn-based dungeon crawler made in Godot. Fight your way down an endless dungeon, one floor at a time. Every time you level up, pick 1 of 3 cards (passives, skills or weapons) and build a different hero each run. Collect coins and spend them at the shopkeeper for even more cards, and face a boss every 5 floors.
 
 ![Title screen](docs/title.png)
 
-**Contents:** [Running the game](#running-the-game) · [How to play](#how-to-play) · [Controls](#controls) · [Enemies](#enemies) · [Coins and the shop](#coins-and-the-shop) · [Cards](#cards) · [Weapons](#weapons) · [Skills](#skills) · [Passives](#passives) · [Adding art](#adding-art) · [For developers](#for-developers) · [Credits](#credits)
+**Contents:** [Running the game](#running-the-game) · [How to play](#how-to-play) · [Controls](#controls) · [Enemies](#enemies) · [Boss floors](#boss-floors) · [Coins and the shop](#coins-and-the-shop) · [Cards](#cards) · [Weapons](#weapons) · [Skills](#skills) · [Passives](#passives) · [Adding art](#adding-art) · [For developers](#for-developers) · [Credits](#credits)
 
 ---
 
@@ -40,7 +40,8 @@ To try a change before it's merged, go to **Current Branch → Pull Requests**, 
 
 - **It's turn-based.** Nothing moves until you do. After each of your actions, every enemy takes its turn.
 - **Attack by walking into an enemy.**
-- **Clear the floor.** When every enemy on a floor is dead, the **stairs** appear. Step on them to go one depth deeper, and you **heal 30% of your max HP** on the way down. The dungeon never ends, but each depth has more and stronger enemies (3 + 2 × depth of them).
+- **Clear the floor.** When every enemy on a floor is dead, the **stairs** appear. Step on them to go one depth deeper, and you **heal 30% of your max HP** on the way down. The dungeon never ends. Each depth has 2 more enemies than the last, up to 20, and after that the enemies just keep getting tougher. See [Enemies](#enemies).
+- **Boss floors.** Every 5th depth (5, 10, 15, ...) is a cave with one boss in it, the Cow. See [Boss floors](#boss-floors).
 - **Coins and the shop.** Enemies sometimes drop coins. Spend them at the shopkeeper, who shows up on some floors. See [Coins and the shop](#coins-and-the-shop).
 - **Fog of war.** You see 7 tiles around you, and walls block your view. Places you've already seen stay on the map, darker.
 - **Level up.** Kills give XP. Each level-up pauses the game and offers **3 cards**, and you pick one. Each level needs a bit more XP than the last.
@@ -84,6 +85,47 @@ Enemies get stronger the deeper you go: **+2 HP per depth** and **+1 attack ever
 | Knight | 5 | 23 | 9 | 10 | 90% | The hardest hitter |
 
 Enemies chase you once you're within 7 tiles of them.
+
+### Deeper down
+
+- **Up to 20 enemies a floor.** A floor has 3 + 2 × depth enemies, which reaches 20 on depth 9. Deeper floors don't get more crowded, they get harder.
+- **A tougher mix.** On depth 1 every enemy type is about as likely. The deeper you go, the more often the tough types show up and the weak ones fade out. By depth 10 a Knight is 10 times as likely as a Rat.
+- **Elites.** From depth 9, some enemies spawn as **elites** with a **gold frame**: 5% of them on depth 9, then 5% more every depth, up to 75%. An elite has **double HP**, **1.5× attack** and gives **double XP**, and it **always drops a coin**. Its name starts with "Elite" in the log.
+
+| Depth | Enemies | Knights, Brutes, Wraiths | Rats, Bats, Goblins | Elites |
+|---|---|---|---|---|
+| 1 | 5 | – | 100% | – |
+| 4 | 11 | 33% | 28% | – |
+| 9 | 20 | 57% | 14% | 5% |
+| 14 | 20 | 69% | 8% | 30% |
+| 19 | 20 | 78% | 4% | 55% |
+| 24 | 20 | 85% | 2% | 75% |
+
+---
+
+## Boss floors
+
+Every 5th depth (5, 10, 15, ...) is a **boss floor**: one big cave instead of rooms, drawn with the depth 1 tiles, with a boss and no other enemies. You start in the middle of the cave and the boss is somewhere further in. The bar at the bottom shows the boss's HP instead of the enemy count. Kill it and the stairs appear as usual.
+
+![The Cow winding up its stomp](docs/boss.png)
+
+### The Cow
+
+| HP | Attack | XP | Coins |
+|---|---|---|---|
+| 60 on depth 5, +8 per depth | 4 on depth 5, +1 per depth | 10 × depth | Always drops 5 |
+
+The Cow hits you up close like any enemy, but it only walks toward you every other turn, so it's easy to get away from. Every few turns, when it can see you within 8 tiles, it winds up one of three **big attacks** instead. It marks the tiles the attack will hit first, and does nothing else while it winds up:
+
+| Attack | Warning | What happens | Damage |
+|---|---|---|---|
+| **Line blast** | The row or column you're standing in turns **red**, and a "!" shows over the Cow | Next turn the red tiles explode. It always picks a line you can step out of | 1.5× its attack |
+| **Charge** | An **orange** path from the Cow to where you're heading: one more step the way you just moved, or where you stand if you didn't move | Next turn it dashes along the path. If you're still on it, it stops in front of you and rams you | 2× its attack |
+| **Stomp** | The **5×5** area around it turns **red**, with a countdown (3, 2, 1) over the Cow. Only when you're within 2 tiles | It stands still for 3 turns, then the whole area explodes | 2.5× its attack |
+
+After a big attack lands, it fights normally for 2 turns before it can start the next one. Stone Skin blocks the big attacks too.
+
+**Tips:** the charge aims one step ahead of you, so if you keep walking the same way you run straight into it. Step sideways or stand still. The stomp gives you a couple of free hits before you have to get 3 tiles away.
 
 ---
 
@@ -160,12 +202,12 @@ Skills go in your skill bar (up to **3**) and are used with keys **1-3**. Using 
 
 ## Passives
 
-Passives are always on. Most can be picked more than once (max stacks in brackets).
+Passives are always on. Most can be picked more than once (how many times is in brackets).
 
 | Passive | Rarity | Effect |
 |---|---|---|
-| Tough Hide (5) | Common | +5 max HP and heal 5 |
-| Sharpened Blade (5) | Common | +1 attack |
+| Tough Hide (no limit) | Common | +5 max HP and heal 5 |
+| Sharpened Blade (no limit) | Common | +1 attack |
 | Thorns (3) | Common | Enemies that hit you in melee take 1 damage |
 | Keen Eye (3) | Common | +15% chance to deal double damage |
 | Quick Study (3) | Common | +25% XP from kills |
@@ -191,6 +233,7 @@ All art lives in [`art/`](art/README.md) and is picked up **by file name**. Drop
 - Cards: `card_common.png` ... `card_legendary.png` (64×100). Weapon icons: `weapon_<id>.png` (32×32).
 - UI: `hud.png` (bottom bar) and `menu_panel.png` (title screen scroll).
 - Coins and the shop: `coin.png` (32×32, drawn at half size on the floor) and `shopkeeper.png` (32×32).
+- Bosses: `cow.png` (32×32). Until it exists, the Cow is a white square with a `C`.
 
 The full list is in [art/README.md](art/README.md). **Commit each `.png` together with its `.png.import` file.**
 
@@ -203,17 +246,19 @@ Written in GDScript. The UI is built in code, so there are only two scenes.
 | File | What's in it |
 |---|---|
 | `scenes/title.tscn`, `scripts/title.gd` | Title screen (Play / Credits / Exit). Credits text is `CREDITS` |
-| `scenes/main.tscn`, `scripts/main.gd` | Dungeon generation, fog of war, turn loop, combat, weapons, skills, coins, shop, HUD |
+| `scenes/main.tscn`, `scripts/main.gd` | Dungeon generation (rooms, and caves on boss floors), fog of war, turn loop, combat, weapons, skills, coins, shop, HUD |
 | `scripts/unit.gd` | Shared grid unit: HP, drawing, damage, movement |
 | `scripts/player.gd` | XP, levels and the stats cards change |
-| `scripts/enemy.gd` | Enemy types (`KINDS`) and depth scaling |
+| `scripts/enemy.gd` | Enemy types (`KINDS`), depth scaling, the tougher mix deeper down (`random_kind`) and elites |
+| `scripts/cow.gd` | The Cow boss: its stats, its three big attacks and when it uses them |
 | `scripts/cards.gd` | Every card (`POOL`), offer rules and effects |
 | `scripts/level_up_ui.gd` | The 3-card pick screen |
 | `scripts/shop_ui.gd` | The shop screen. Prices are in `PRICES`, the reroll cost in `REROLL_PRICE` |
 | `tools/sim.gd` | Headless bot that plays random turns (smoke test) |
-| `tools/feature_test.gd` | Checks the coin, shop, Night Vision and Break Wall rules, then applies every card and fires every skill on a depth-3 floor |
+| `tools/feature_test.gd` | Checks the coin, shop, Night Vision, Break Wall, enemy cap, elite and boss rules (each of the Cow's attacks), then applies every card and fires every skill on a depth-3 floor |
 
 **Adding an enemy:** add a line to `KINDS` in `scripts/enemy.gd`. The optional keys are `actions`, `range`, `slow` and `poison`.
+**Adding a boss:** make a script that extends `scripts/enemy.gd`, like `scripts/cow.gd`, with a `boss_turn(game)` function. `main.gd` calls it instead of the normal enemy turn. Tiles you put in its `danger` list are marked on the map (`danger_color`). Spawn it in `_spawn_boss()` in `main.gd`.
 **Adding a card:** add an entry to `POOL` in `scripts/cards.gd`. Passives go in `apply()`, skills in `_use_skill()` in `main.gd`, and weapons use keys like `atk`, `crit`, `reach`, `ranged`.
 
 Run the tests from the project folder:

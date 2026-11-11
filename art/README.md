@@ -14,6 +14,7 @@ Anything without a file is drawn as a coloured square with a letter.
 | `hud.png` | bottom HUD background (256x64, drawn as a 9-patch at 2x) |
 | `coin.png` | coins: drawn at half size (16x16) on the floor, full size in the HUD and shop |
 | `shopkeeper.png` | the shopkeeper who sells cards (until it exists, a purple square with a `$`) |
+| `cow.png` | the Cow, the boss of every 5th depth (until it exists, a white square with a `C`). Boss caves use `floor.png`, `wall.png` and `stairs.png` (or the `_1` versions) |
 | `rat.png`, `bat.png`, `goblin.png`, `archer.png`, `orc.png`, `brute.png`, `wraith.png`, `spider.png`, `knight.png` | enemies (name from `KINDS` in `scripts/enemy.gd`, lowercase) |
 
 The HP bar is drawn over the bottom 5 pixels, so keep important detail above that.
