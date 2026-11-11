@@ -2,6 +2,7 @@ extends "res://scripts/unit.gd"
 ## The player: XP/levels plus the stats that cards modify.
 
 const MAX_SKILLS := 3
+const NATURAL_REGEN := 10  # you heal 1 HP every this many turns; Second Wind adds more on top
 
 var level := 1
 var xp := 0
@@ -12,8 +13,9 @@ var pending_levels := 0
 var lifesteal := 0
 var thorns := 0
 var crit_chance := 0.0
-var regen_every := 0  # 0 = no regen
+var regen_every := 0  # Second Wind: heal 1 HP every this many turns, 0 = not picked
 var regen_counter := 0
+var natural_counter := 0  # turns since the last natural 1 HP heal
 var xp_mult := 1.0
 var armor := 0
 var berserk := 0.0  # bonus damage multiplier while below half HP
@@ -70,6 +72,10 @@ func end_turn() -> void:
 	for s in skills:
 		if s.ready_in > 0:
 			s.ready_in -= 1
+	natural_counter += 1
+	if natural_counter >= NATURAL_REGEN:
+		natural_counter = 0
+		heal(1)
 	if regen_every > 0:
 		regen_counter += 1
 		if regen_counter >= regen_every:

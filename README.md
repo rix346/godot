@@ -39,7 +39,8 @@ To try a change before it's merged, go to **Current Branch → Pull Requests**, 
 ![Gameplay](docs/game.png)
 
 - **It's turn-based.** Nothing moves until you do. After each of your actions, every enemy takes its turn.
-- **Attack by walking into an enemy.**
+- **Attack by walking into an enemy.** With a melee weapon or your fists, that hits for **2× your attack** (the ATK in the bar at the bottom). Holding a bow it's a plain 1× hit, since the bow does its damage by shooting.
+- **Healing.** You heal **1 HP every 10 turns** on your own, and 30% of your max HP every time you take the stairs. Cards like Second Wind, Vampiric Fangs, Bloodlust and Mend heal more.
 - **Clear the floor.** When every enemy on a floor is dead, the **stairs** appear. Step on them to go one depth deeper, and you **heal 30% of your max HP** on the way down. The dungeon never ends. Each depth has 2 more enemies than the last, up to 20, and after that the enemies just keep getting tougher. See [Enemies](#enemies).
 - **Boss floors.** Every 5th depth (5, 10, 15, ...) is a cave with one boss in it, the Cow. See [Boss floors](#boss-floors).
 - **Coins and the shop.** Enemies sometimes drop coins. Spend them at the shopkeeper, who shows up on some floors. See [Coins and the shop](#coins-and-the-shop).
@@ -115,6 +116,8 @@ Every 5th depth (5, 10, 15, ...) is a **boss floor**: one big cave instead of ro
 |---|---|---|---|
 | 60 on depth 5, +8 per depth | 4 on depth 5, +1 per depth | 10 × depth | Always drops 5 |
 
+Its thick hide stops most arrows: the **Bow and Starlight only do 20% damage** to it (at least 1 per shot). Bring a melee weapon, or be ready to walk up and hit it.
+
 The Cow hits you up close like any enemy, but it only walks toward you every other turn, so it's easy to get away from. Every few turns, when it can see you within 8 tiles, it winds up one of three **big attacks** instead. It marks the tiles the attack will hit first, and does nothing else while it winds up:
 
 | Attack | Warning | What happens | Damage |
@@ -169,6 +172,8 @@ There are three kinds of card: **weapons**, **skills** and **passives**. Once yo
 
 You hold **one weapon at a time**. Picking a new one replaces the old one. Without a weapon you fight with your fists.
 
+Melee weapons and fists hit for **2× your attack**, and the percentages below are of that hit (a Dagger strike is 60% of 2× = 1.2× your attack). Ranged weapons shoot for the percentage of your attack shown (Starlight's arrows do 100%).
+
 | Weapon | Rarity | Effect |
 |---|---|---|
 | Dagger | Common | Strike twice, each for 60% damage |
@@ -181,7 +186,7 @@ You hold **one weapon at a time**. Picking a new one replaces the old one. Witho
 | Dragon Slayer | Legendary | +6 attack. Double damage to enemies with 15 or more max HP |
 | Excalibur | Legendary | +5 attack. Every attack also hits all enemies around you |
 
-**How ranged weapons work:** every time you **move or wait**, the weapon fires by itself at the closest enemy you can see within 5 tiles (walls block shots). A **yellow box** marks that target. **Left-click** another enemy in range to aim at it instead, and the box turns **red**. You can still walk into enemies for a normal melee hit.
+**How ranged weapons work:** every time you **move or wait**, the weapon fires by itself at the closest enemy you can see within 5 tiles (walls block shots). A **yellow box** marks that target. **Left-click** another enemy in range to aim at it instead, and the box turns **red**. You can still walk into enemies for a melee hit, but with a bow that's only 1× your attack.
 
 ---
 
@@ -212,7 +217,7 @@ Passives are always on. Most can be picked more than once (how many times is in 
 | Keen Eye (3) | Common | +15% chance to deal double damage |
 | Quick Study (3) | Common | +25% XP from kills |
 | Vampiric Fangs (3) | Rare | Heal 1 HP every time you hit |
-| Second Wind (3) | Rare | Regenerate 1 HP every few turns (faster per stack) |
+| Second Wind (3) | Rare | Regenerate 1 HP every few turns (faster per stack), on top of the 1 HP every 10 turns everyone gets |
 | Iron Skin (3) | Rare | Take 1 less damage from every hit (min 1) |
 | Berserker (2) | Rare | +50% damage while below half HP |
 | Bloodlust (3) | Epic | Heal 3 HP on every kill |
@@ -255,7 +260,7 @@ Written in GDScript. The UI is built in code, so there are only two scenes.
 | `scripts/level_up_ui.gd` | The 3-card pick screen |
 | `scripts/shop_ui.gd` | The shop screen. Prices are in `PRICES`, the reroll cost in `REROLL_PRICE` |
 | `tools/sim.gd` | Headless bot that plays random turns (smoke test) |
-| `tools/feature_test.gd` | Checks the coin, shop, Night Vision, Break Wall, enemy cap, elite and boss rules (each of the Cow's attacks), then applies every card and fires every skill on a depth-3 floor |
+| `tools/feature_test.gd` | Checks the coin, shop, Night Vision, Break Wall, enemy cap, elite and boss rules (each of the Cow's attacks), double melee damage, natural healing and arrows against the Cow, then applies every card and fires every skill on a depth-3 floor |
 
 **Adding an enemy:** add a line to `KINDS` in `scripts/enemy.gd`. The optional keys are `actions`, `range`, `slow` and `poison`.
 **Adding a boss:** make a script that extends `scripts/enemy.gd`, like `scripts/cow.gd`, with a `boss_turn(game)` function. `main.gd` calls it instead of the normal enemy turn. Tiles you put in its `danger` list are marked on the map (`danger_color`). Spawn it in `_spawn_boss()` in `main.gd`.
