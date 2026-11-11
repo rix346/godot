@@ -3,6 +3,7 @@ extends "res://scripts/unit.gd"
 ## Optional KINDS keys: actions (moves per turn), range (ranged attack along a
 ## straight line), slow (only acts every other turn), poison (melee hits poison
 ## the player for that many turns).
+## Bosses extend this script (see cow.gd) and take their turn in boss_turn().
 
 const KINDS := [
 	{name = "Rat", glyph = "r", hp = 4, atk = 1, xp = 1, color = Color(0.65, 0.55, 0.45), min_depth = 1},
@@ -17,6 +18,13 @@ const KINDS := [
 ]
 
 const AGGRO_RANGE := 7
+const ELITE_FROM := 9  # first depth with elites: where main.gd's MAX_ENEMIES cap is reached
+const ELITE_STEP := 0.05  # elite chance added per depth from ELITE_FROM on
+const ELITE_MAX := 0.75
+const ELITE_HP := 2.0  # elites get these times the HP, attack and XP
+const ELITE_ATK := 1.5
+const ELITE_XP := 2
+const GOLD := Color(1.0, 0.84, 0.3)
 
 var xp_value := 1
 var actions := 1
@@ -24,6 +32,9 @@ var attack_range := 1
 var slow := false
 var poison := 0
 var resting := false
+var elite := false
+var danger: Array[Vector2i] = []  # tiles a boss attack is about to hit, drawn by main.gd
+var danger_color := Color(1, 0.2, 0.15)
 
 
 func setup(kind: Dictionary, depth: int) -> void:
@@ -41,10 +52,34 @@ func setup(kind: Dictionary, depth: int) -> void:
 	load_art(kind.name)
 
 
+## Elite version: double HP, more attack, double XP, a gold outline and a
+## coin every time.
+func make_elite() -> void:
+	elite = true
+	display_name = "Elite " + display_name
+	max_hp = ceili(max_hp * ELITE_HP)
+	hp = max_hp
+	attack = ceili(attack * ELITE_ATK)
+	xp_value *= ELITE_XP
+
+
+## Share of enemies that spawn as elites: none before depth 9, then 5% more
+## per depth (5% at depth 9, 50% at depth 18) up to 75%.
+static func elite_chance(depth: int) -> float:
+	return clampf((depth - ELITE_FROM + 1) * ELITE_STEP, 0.0, ELITE_MAX)
+
+
 ## Tougher enemies (more XP) are more likely to drop a coin: a Rat 18%, a
 ## Goblin 26%, an Orc 42%, a Brute 74%, a Knight 90%.
 func coin_chance() -> float:
 	return minf(0.9, 0.1 + 0.08 * xp_value)
+
+
+## Coins dropped on death: elites always drop one, others roll coin_chance().
+func coin_drop() -> int:
+	if elite:
+		return 1
+	return 1 if randf() < coin_chance() else 0
 
 
 ## Slow enemies alternate between acting and resting. Returns true if this
@@ -57,12 +92,30 @@ func tick_rest() -> bool:
 	return resting
 
 
+## Picks an enemy type for a new floor. Tougher types get more common the
+## deeper you go: each type's weight is its XP to the power depth / 10, so on
+## depth 1 they're all about equal, on depth 10 a Knight (10 XP) is 10 times as
+## likely as a Rat (1 XP), and on depth 20 it's 100 times.
 static func random_kind(depth: int) -> Dictionary:
 	var options := KINDS.filter(func(k): return k.min_depth <= depth)
-	return options.pick_random()
+	var total := 0.0
+	for k in options:
+		total += pow(k.xp, depth / 10.0)
+	var roll := randf() * total
+	for k in options:
+		roll -= pow(k.xp, depth / 10.0)
+		if roll < 0:
+			return k
+	return options.back()
 
 
 func _draw() -> void:
 	super()
+	if elite:
+		# Gold frame with corner studs, so it doesn't look like the bow's target box.
+		draw_rect(Rect2(Vector2(1, 1), Vector2(TILE - 2, TILE - 2)), GOLD, false, 2)
+		for corner in [Vector2(0, 0), Vector2(TILE - 5, 0), Vector2(0, TILE - 5), Vector2(TILE - 5, TILE - 5)]:
+			draw_rect(Rect2(corner, Vector2(5, 5)), GOLD)
+		_draw_hp_bar()  # back on top of the frame
 	if resting:
 		draw_string(ThemeDB.fallback_font, Vector2(TILE - 10, 10), "z", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
