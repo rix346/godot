@@ -1,10 +1,11 @@
 extends SceneTree
 # Headless check of every card and skill on a deep floor: applies all cards,
 # fires each skill, and plays turns until death or a turn cap. Before that it
-# checks the rules for weapon offers, the stairs heal, coins, the shop, Night
-# Vision and Break Wall, and prints FAIL for anything that's broken.
+# checks the rules for weapon offers, the stairs heal, coins, the shop and its
+# reroll, Night Vision and Break Wall, and prints FAIL for anything that's broken.
 const Cards := preload("res://scripts/cards.gd")
 const Enemy := preload("res://scripts/enemy.gd")
+const ShopUI := preload("res://scripts/shop_ui.gd")
 
 var failures := 0
 
@@ -136,6 +137,14 @@ func check_rules(main) -> void:
 	check(main.shop_stock[0].sold and player.coins == 100 - price, "buying a card")
 	main._shop_ui._pick(0)
 	check(player.coins == 100 - price, "a sold card can't be bought twice")
+	main._shop_ui._try_reroll()
+	check(player.coins == 100 - price - ShopUI.REROLL_PRICE, "reroll costs %d coins" % ShopUI.REROLL_PRICE)
+	check(main.shop_stock.size() == 3 and main.shop_stock.all(func(it): return not it.sold), "reroll gives 3 new cards")
+	check(is_same(main._shop_ui._stock, main.shop_stock), "the shop screen shows the rerolled cards")
+	player.coins = ShopUI.REROLL_PRICE - 1
+	var before_reroll: Array = main.shop_stock.duplicate()
+	main._shop_ui._try_reroll()
+	check(player.coins == ShopUI.REROLL_PRICE - 1 and main.shop_stock == before_reroll, "can't reroll without the coins")
 	main._shop_ui._close()
 	check(main.state == main.State.PLAYER_TURN, "leaving the shop")
 

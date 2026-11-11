@@ -62,7 +62,7 @@ You start with **20 HP** and **3 attack**.
 | Left mouse click on an enemy | Choose the target for a ranged weapon (doesn't use a turn) |
 | 1, 2, 3 or click | Pick a card on the level-up screen, or buy one in the shop |
 | Walk into the shopkeeper | Open the shop (doesn't use a turn) |
-| R | Restart after dying |
+| R | Restart after dying, or reroll the shop's cards (5 coins) |
 | Esc | Leave the shop, cancel Break Wall, or go back to the title screen |
 
 ---
@@ -94,6 +94,8 @@ Enemies chase you once you're within 7 tiles of them.
 **The shopkeeper ($).** From depth 2, when you clear a floor a shopkeeper sometimes appears along with the stairs: 40% of the time, and never 3 floors in a row without one. The shopkeeper always stands in an open spot, so they never block a corridor, and they can't be hurt.
 
 Walk into the shopkeeper to open the shop. It has 3 cards for sale, picked the same way as level-up cards. Buy one with **1-3** or a click, and leave with **Esc**. Browsing doesn't use a turn, and you can come back as long as you're on that floor.
+
+Don't like the cards? Press **R** or click **Reroll** to swap all 3 for new ones, for **5 coins** each time. Sold cards get replaced too.
 
 | Rarity | Price |
 |---|---|
@@ -207,7 +209,7 @@ Written in GDScript. The UI is built in code, so there are only two scenes.
 | `scripts/enemy.gd` | Enemy types (`KINDS`) and depth scaling |
 | `scripts/cards.gd` | Every card (`POOL`), offer rules and effects |
 | `scripts/level_up_ui.gd` | The 3-card pick screen |
-| `scripts/shop_ui.gd` | The shop screen. Prices are in `PRICES` |
+| `scripts/shop_ui.gd` | The shop screen. Prices are in `PRICES`, the reroll cost in `REROLL_PRICE` |
 | `tools/sim.gd` | Headless bot that plays random turns (smoke test) |
 | `tools/feature_test.gd` | Checks the coin, shop, Night Vision and Break Wall rules, then applies every card and fires every skill on a depth-3 floor |
 

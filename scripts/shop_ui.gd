@@ -1,12 +1,15 @@
 extends "res://scripts/level_up_ui.gd"
 ## Shop overlay: the shopkeeper's cards, bought with coins by click or keys
-## 1-3. Esc or Leave closes it. main.gd takes the coins and applies the card.
+## 1-3. R or Reroll swaps the cards for new ones, Esc or Leave closes it.
+## main.gd takes the coins, applies the card and rolls the new cards.
 ## Reuses the card look from level_up_ui.gd.
 
 signal bought(card: Dictionary, price: int)
+signal rerolled(price: int)
 signal closed
 
 const PRICES := {common = 3, rare = 5, epic = 8, legendary = 12}
+const REROLL_PRICE := 5
 const GOLD := Color(1.0, 0.84, 0.3)
 const RED := Color(1.0, 0.45, 0.4)
 
@@ -14,6 +17,7 @@ var _player
 var _stock: Array = []  # this floor's shop: [{card, sold}], kept by main.gd
 var _buttons: Array[Button] = []
 var _wallet: HBoxContainer
+var _reroll: Button
 var _leave: Button
 var _coin_tex: Texture2D
 
@@ -31,23 +35,32 @@ func _ready() -> void:
 	_wallet.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.add_child(_wallet)
 	box.move_child(_wallet, 1)  # right under the title
-	_leave = Button.new()
-	_leave.text = "Leave  [Esc]"
-	_leave.flat = true
-	_leave.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	_leave.add_theme_font_size_override("font_size", 22)
-	_leave.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85))
+	var buttons := HBoxContainer.new()
+	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	buttons.add_theme_constant_override("separation", 48)
+	box.add_child(buttons)
+	_reroll = _menu_button("Reroll for %d coins  [R]" % REROLL_PRICE, _try_reroll)
+	buttons.add_child(_reroll)
+	_leave = _menu_button("Leave  [Esc]", _close)
+	buttons.add_child(_leave)
+
+
+func _menu_button(text: String, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.flat = true
+	b.add_theme_font_size_override("font_size", 22)
+	b.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85))
 	for state in ["font_hover_color", "font_focus_color", "font_pressed_color", "font_hover_pressed_color"]:
-		_leave.add_theme_color_override(state, GOLD)
-	_leave.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	_leave.pressed.connect(_close)
-	box.add_child(_leave)
+		b.add_theme_color_override(state, GOLD)
+	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	b.pressed.connect(on_press)
+	return b
 
 
 func open(player, stock: Array) -> void:
 	_player = player
 	_stock = stock
-	_cards = stock.map(func(item): return item.card)
 	_title.text = "Shop"
 	_rebuild()
 	show()
@@ -58,6 +71,8 @@ func _rebuild() -> void:
 		child.get_parent().remove_child(child)
 		child.queue_free()
 	_fill_coin_row(_wallet, "You have %d" % _player.coins, 20, GOLD)
+	_cards = _stock.map(func(item): return item.card)
+	_reroll.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85) if _player.coins >= REROLL_PRICE else RED)
 	_buttons.clear()
 	for i in _stock.size():
 		var item: Dictionary = _stock[i]
@@ -130,10 +145,15 @@ func _plain_label(text: String, font_size: int, col: Color) -> Label:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if visible and event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
-		get_viewport().set_input_as_handled()
-		_close()
-		return
+	if visible and event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_ESCAPE:
+			get_viewport().set_input_as_handled()
+			_close()
+			return
+		if event.keycode == KEY_R:
+			get_viewport().set_input_as_handled()
+			_try_reroll()
+			return
 	super(event)
 
 
@@ -146,12 +166,27 @@ func _pick(i: int) -> void:
 		return
 	var price := price_of(item.card)
 	if _player.coins < price:
-		_wallet.modulate = RED
-		_wallet.create_tween().tween_property(_wallet, "modulate", Color.WHITE, 0.4)
+		_flash_wallet()
 		return
 	item.sold = true
 	bought.emit(item.card, price)
 	_rebuild()
+
+
+## Pays REROLL_PRICE for 3 new cards (main.gd rolls them into the stock).
+func _try_reroll() -> void:
+	if not visible:
+		return
+	if _player.coins < REROLL_PRICE:
+		_flash_wallet()
+		return
+	rerolled.emit(REROLL_PRICE)
+	_rebuild()
+
+
+func _flash_wallet() -> void:
+	_wallet.modulate = RED
+	_wallet.create_tween().tween_property(_wallet, "modulate", Color.WHITE, 0.4)
 
 
 func _close() -> void:
