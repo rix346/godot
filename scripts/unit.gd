@@ -105,7 +105,11 @@ func _draw() -> void:
 	else:
 		draw_rect(Rect2(Vector2(3, 3), Vector2(TILE - 6, TILE - 6)), color)
 		draw_string(ThemeDB.fallback_font, Vector2(3, 22), glyph, HORIZONTAL_ALIGNMENT_CENTER, TILE - 6, 16, Color.BLACK)
-	# HP bar along the bottom edge.
+	_draw_hp_bar()
+
+
+## HP bar along the bottom edge.
+func _draw_hp_bar() -> void:
 	var frac := float(hp) / max_hp
 	draw_rect(Rect2(Vector2(3, TILE - 5), Vector2(TILE - 6, 3)), Color(0.25, 0, 0))
 	draw_rect(Rect2(Vector2(3, TILE - 5), Vector2((TILE - 6) * frac, 3)), Color(0.2, 0.9, 0.2))

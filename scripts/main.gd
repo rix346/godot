@@ -7,6 +7,7 @@ extends Node2D
 const Unit := preload("res://scripts/unit.gd")
 const Player := preload("res://scripts/player.gd")
 const Enemy := preload("res://scripts/enemy.gd")
+const Cow := preload("res://scripts/cow.gd")
 const Cards := preload("res://scripts/cards.gd")
 const LevelUpUI := preload("res://scripts/level_up_ui.gd")
 const ShopUI := preload("res://scripts/shop_ui.gd")
@@ -16,6 +17,11 @@ const H := 18
 const TILE := Unit.TILE
 const MAX_ROOMS := 9
 const EXTRA_CORRIDORS := 2  # extra links between random rooms, so maps have loops
+const MAX_ENEMIES := 20  # 3 + 2 per depth reaches this on depth 9; deeper floors get tougher, not fuller
+const BOSS_EVERY := 5  # every 5th depth is a cave with a boss and no other enemies
+const CAVE_FILL := 0.42  # share of a boss cave that is floor
+const BOSS_SPAWN_DIST := 8  # the boss starts at least this many steps from you
+const DIRS: Array[Vector2i] = [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]
 const SIGHT := 7
 const FIREBALL_RANGE := 6
 const CHAIN_JUMP_RANGE := 3
@@ -46,6 +52,7 @@ var shop := Vector2i(-1, -1)  # the shopkeeper's tile, (-1, -1) if this floor ha
 var shop_stock: Array = []  # [{card, sold}] for sale on this floor
 var floors_without_shop := 0
 var breaking := false  # Break Wall is waiting for a direction
+var last_step := Vector2i.ZERO  # your move this turn (zero if you didn't move); the Cow aims its charge with it
 var astar := AStarGrid2D.new()
 var player: Player
 var enemies: Array = []
@@ -62,6 +69,7 @@ var _hud_layer: CanvasLayer
 var _purse: TextureRect  # HUD coin icon; Coin Magnet coins fly here
 var _purse_label: Label
 var _shop_ui: ShopUI
+var _danger_layer: Node2D  # frames boss attack tiles above the units
 
 
 func _ready() -> void:
@@ -69,6 +77,10 @@ func _ready() -> void:
 	_coin_tex = _load_art("coin")
 	_shop_tex = _load_art("shopkeeper")
 	_build_hud()
+	_danger_layer = Node2D.new()
+	_danger_layer.z_index = 4
+	_danger_layer.draw.connect(_draw_danger_frames)
+	add_child(_danger_layer)
 	player = Player.new()
 	player.died.connect(_on_player_died)
 	add_child(player)
@@ -88,14 +100,25 @@ func _new_floor() -> void:
 	shop = Vector2i(-1, -1)
 	shop_stock = []
 	breaking = false
-	_floor_tex = _depth_art("floor")
-	_wall_tex = _depth_art("wall")
-	_stairs_tex = _depth_art("stairs")
 	seen_cells.clear()
-	_carve_map()
-	player.place(rooms[0].get_center())
-	_spawn_enemies(3 + depth * 2)
+	# Boss caves always use the depth 1 tiles.
+	var art_depth := 1 if is_boss_floor() else depth
+	_floor_tex = _depth_art("floor", art_depth)
+	_wall_tex = _depth_art("wall", art_depth)
+	_stairs_tex = _depth_art("stairs", art_depth)
+	if is_boss_floor():
+		_carve_cave()
+		player.place(Vector2i(W / 2, H / 2))
+		_spawn_boss()
+	else:
+		_carve_map()
+		player.place(rooms[0].get_center())
+		_spawn_enemies(mini(3 + depth * 2, MAX_ENEMIES))
 	_update_fov()
+
+
+func is_boss_floor() -> bool:
+	return depth % BOSS_EVERY == 0
 
 
 ## Non-overlapping rectangular rooms, chained left to right by L-shaped
@@ -119,7 +142,24 @@ func _carve_map() -> void:
 			_carve_corridor(rooms[i - 1].get_center(), rooms[i].get_center())
 	for i in EXTRA_CORRIDORS:
 		_carve_corridor(rooms.pick_random().get_center(), rooms.pick_random().get_center())
+	_build_astar()
 
+
+## Boss floors are one big cave, carved like the very first version of the
+## game: a random walk from the centre until CAVE_FILL of the map is floor,
+## so every tile can be reached. Caves have no rooms.
+func _carve_cave() -> void:
+	floor_cells.clear()
+	rooms.clear()
+	var pos := Vector2i(W / 2, H / 2)
+	while floor_cells.size() < int(W * H * CAVE_FILL):
+		floor_cells[pos] = true
+		pos = (pos + DIRS.pick_random()).clamp(Vector2i(1, 1), Vector2i(W - 2, H - 2))
+	_build_astar()
+
+
+## Pathfinding grid for enemies: walls are solid.
+func _build_astar() -> void:
 	astar.region = Rect2i(0, 0, W, H)
 	astar.cell_size = Vector2(1, 1)
 	astar.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_NEVER
@@ -175,16 +215,41 @@ func _line_of_sight(a: Vector2i, b: Vector2i) -> bool:
 	return true
 
 
+## Deeper floors get a tougher mix (Enemy.random_kind) and more elites.
 func _spawn_enemies(count: int) -> void:
 	var cells := floor_cells.keys().filter(func(c): return _dist(c, player.grid_pos) >= 6)
 	cells.shuffle()
 	for i in min(count, cells.size()):
 		var e := Enemy.new()
 		e.setup(Enemy.random_kind(depth), depth)
-		e.place(cells[i])
-		e.died.connect(_on_enemy_died)
-		add_child(e)
-		enemies.append(e)
+		if randf() < Enemy.elite_chance(depth):
+			e.make_elite()
+		_add_enemy(e, cells[i])
+
+
+## The Cow, somewhere in the cave away from you.
+func _spawn_boss() -> void:
+	var cells := floor_cells.keys().filter(func(c): return _dist(c, player.grid_pos) >= BOSS_SPAWN_DIST)
+	if cells.is_empty():
+		cells = floor_cells.keys().filter(func(c): return c != player.grid_pos)
+	var boss := Cow.new()
+	boss.setup_boss(depth)
+	_add_enemy(boss, cells.pick_random())
+
+
+func _add_enemy(e, cell: Vector2i) -> void:
+	e.place(cell)
+	e.died.connect(_on_enemy_died)
+	add_child(e)
+	enemies.append(e)
+
+
+## The boss of this floor, or null.
+func _boss():
+	for e in enemies:
+		if e.has_method("boss_turn"):
+			return e
+	return null
 
 
 func _draw() -> void:
@@ -226,20 +291,35 @@ func _draw() -> void:
 	for c in seen_cells:
 		if not visible_cells.has(c):
 			draw_rect(Rect2(Vector2(c * TILE), Vector2(TILE, TILE)), Color(0, 0, 0, 0.6))
+	# A boss attack that's winding up: the tiles it will hit next.
+	for e in enemies:
+		for c in e.danger:
+			if seen_cells.has(c):
+				draw_rect(Rect2(Vector2(c * TILE), Vector2(TILE, TILE)), Color(e.danger_color, 0.35))
+	_danger_layer.queue_redraw()
 	if breaking:
 		# Break Wall: outline the walls next to you that can be smashed.
-		for dir in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
+		for dir in DIRS:
 			var c: Vector2i = player.grid_pos + dir
 			if not floor_cells.has(c) and _can_break(c):
 				draw_rect(Rect2(Vector2(c * TILE) + Vector2(1, 1), Vector2(TILE - 2, TILE - 2)), GOLD, false, 2)
 
 
-## Tile art for the current depth: <name>_<depth>.png, else the nearest
-## shallower <name>_<n>.png, else <name>.png. So floor_1 and floor_4 make
-## depths 1-3 and 4+ look different.
-func _depth_art(art_name: String) -> Texture2D:
-	for d in range(depth, 0, -1):
-		var tex := _load_art("%s_%d" % [art_name, d])
+## Frames around the boss attack tiles, drawn over the units, so you can see
+## when you're standing in one.
+func _draw_danger_frames() -> void:
+	for e in enemies:
+		for c in e.danger:
+			if seen_cells.has(c):
+				_danger_layer.draw_rect(Rect2(Vector2(c * TILE) + Vector2(1, 1), Vector2(TILE - 2, TILE - 2)), Color(e.danger_color, 0.9), false, 2)
+
+
+## Tile art for depth `d`: <name>_<d>.png, else the nearest shallower
+## <name>_<n>.png, else <name>.png. So floor_1 and floor_4 make depths 1-3
+## and 4+ look different.
+func _depth_art(art_name: String, d: int) -> Texture2D:
+	for n in range(d, 0, -1):
+		var tex := _load_art("%s_%d" % [art_name, n])
 		if tex:
 			return tex
 	return _load_art(art_name)
@@ -273,6 +353,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	var acted := false
+	last_step = Vector2i.ZERO
 	if breaking:
 		if event.echo:
 			return  # a held skill key shouldn't cancel its own aim
@@ -309,6 +390,7 @@ func _player_step(dir: Vector2i) -> bool:
 			_player_attack(far, dir)
 			return true
 	player.move_to(target)
+	last_step = dir
 	_pick_up_coins(target)
 	if target == stairs:
 		_descend()
@@ -324,7 +406,11 @@ func _descend() -> void:
 	var before := player.hp
 	player.heal(ceili(player.max_hp * DESCEND_HEAL))
 	var healed := player.hp - before
+	last_step = Vector2i.ZERO
 	_log("You descend to depth %d%s." % [depth, " and recover %d HP" % healed if healed > 0 else ""])
+	var boss = _boss()
+	if boss:
+		_log("Boss floor! The %s is somewhere in this cave." % boss.display_name)
 
 
 # --- Ranged weapons ------------------------------------------------------------
@@ -431,6 +517,9 @@ func _run_enemies() -> void:
 
 
 func _enemy_act(e) -> void:
+	if e.has_method("boss_turn"):
+		e.boss_turn(self)
+		return
 	var d := _dist(e.grid_pos, player.grid_pos)
 	if d == 1:
 		_attack(e, player)
@@ -438,9 +527,14 @@ func _enemy_act(e) -> void:
 		_zap(e.grid_pos, player.grid_pos, Color(1, 0.9, 0.5))
 		_attack(e, player, true)
 	elif d <= Enemy.AGGRO_RANGE:
-		var path := astar.get_id_path(e.grid_pos, player.grid_pos)
-		if path.size() > 1 and not _enemy_at(path[1]) and path[1] != player.grid_pos:
-			e.move_to(path[1])
+		_step_toward(e, player.grid_pos)
+
+
+## One step along the shortest path to `target`, unless someone is in the way.
+func _step_toward(e, target: Vector2i) -> void:
+	var path := astar.get_id_path(e.grid_pos, target)
+	if path.size() > 1 and not _enemy_at(path[1]) and path[1] != player.grid_pos:
+		e.move_to(path[1])
 
 
 func _check_level_up() -> void:
@@ -473,15 +567,18 @@ func _gain_card(card: Dictionary) -> void:
 
 # --- Coins & shop --------------------------------------------------------------
 
-## Tougher enemies are more likely to drop a coin (see Enemy.coin_chance).
+## Tougher enemies are more likely to drop a coin, elites always drop one and
+## a boss drops a pile (see Enemy.coin_drop).
 func _drop_coin(e) -> void:
-	if randf() >= e.coin_chance():
+	var n: int = e.coin_drop()
+	if n == 0:
 		return
 	if player.coin_magnet:
-		player.coins += 1
-		_fly_coin(e.grid_pos)
+		player.coins += n
+		for i in n:
+			_fly_coin(e.grid_pos, i * 0.1)
 	else:
-		coins[e.grid_pos] = coins.get(e.grid_pos, 0) + 1
+		coins[e.grid_pos] = coins.get(e.grid_pos, 0) + n
 		queue_redraw()
 
 
@@ -504,8 +601,9 @@ func _magnet_coins() -> void:
 	queue_redraw()
 
 
-## A coin that flies from a map tile to the HUD coin counter.
-func _fly_coin(cell: Vector2i) -> void:
+## A coin that flies from a map tile to the HUD coin counter, after `delay`
+## seconds (so a pile flies one coin after another).
+func _fly_coin(cell: Vector2i, delay := 0.0) -> void:
 	if _coin_tex == null:
 		return
 	var coin := Sprite2D.new()
@@ -514,6 +612,8 @@ func _fly_coin(cell: Vector2i) -> void:
 	coin.position = Vector2(cell * TILE) + Vector2(TILE, TILE) / 2
 	_hud_layer.add_child(coin)
 	var tw := coin.create_tween()
+	if delay > 0:
+		tw.tween_interval(delay)
 	tw.tween_property(coin, "position", _purse.global_position + _purse.size / 2, 0.5) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tw.tween_callback(coin.queue_free)
@@ -838,6 +938,27 @@ func _clear_line(a: Vector2i, b: Vector2i) -> bool:
 	return true
 
 
+## Boss attacks landing: a burst of fire on every tile you can see.
+func _explode(cells: Array) -> void:
+	for c in cells:
+		if not seen_cells.has(c):
+			continue
+		var fx := ColorRect.new()
+		fx.color = Color(1, 0.85, 0.4)
+		fx.size = Vector2(TILE, TILE)
+		fx.pivot_offset = fx.size / 2
+		fx.position = Vector2(c * TILE)
+		fx.scale = Vector2(0.3, 0.3)
+		fx.z_index = 5
+		fx.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(fx)
+		var tw := fx.create_tween()
+		tw.tween_property(fx, "scale", Vector2.ONE, 0.1)
+		tw.parallel().tween_property(fx, "color", Color(1, 0.3, 0.1), 0.25)
+		tw.tween_property(fx, "modulate:a", 0.0, 0.25)
+		tw.tween_callback(fx.queue_free)
+
+
 ## Brief line between two cells, for projectiles and spells.
 func _zap(a: Vector2i, b: Vector2i, col: Color) -> void:
 	var line := Line2D.new()
@@ -932,8 +1053,10 @@ func _refresh_hud() -> void:
 		for c in Cards.POOL:
 			if c.id == id and c.type == "passive":
 				passive_txt.append("%s x%d" % [c.name, player.card_stacks[id]])
-	_hud.text = "Depth %d   Turn %d   HP %d/%d   ATK %d   Lv %d   XP %d/%d   Enemies %d%s\nWeapon: %s   Skills: %s\nPassives: %s\n%s" % [
-		depth, turn, player.hp, player.max_hp, player.attack, player.level, player.xp, player.xp_to_next, enemies.size(),
+	var boss = _boss()
+	var foes := "%s %d/%d" % [boss.display_name, boss.hp, boss.max_hp] if boss else "Enemies %d" % enemies.size()
+	_hud.text = "Depth %d   Turn %d   HP %d/%d   ATK %d   Lv %d   XP %d/%d   %s%s\nWeapon: %s   Skills: %s\nPassives: %s\n%s" % [
+		depth, turn, player.hp, player.max_hp, player.attack, player.level, player.xp, player.xp_to_next, foes,
 		("   POISONED (%d)" % player.poison_turns if player.poison_turns > 0 else "") + ("   STONE SKIN" if player.shield_turns > 0 else ""),
 		player.weapon.get("name", "fists"),
 		"  ".join(skill_txt) if skill_txt else "none",

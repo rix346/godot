@@ -1,6 +1,7 @@
 extends RefCounted
 ## Card pool offered on level-up. To add a card: add an entry to POOL and a
 ## branch in apply() (passives) or in main.gd's _use_skill() (skills).
+## max_stacks is how many times a card can be picked; -1 means no limit.
 
 const RARITY_WEIGHTS := {common = 60, rare = 30, epic = 10, legendary = 3}
 const RARITY_COLORS := {
@@ -12,9 +13,9 @@ const RARITY_COLORS := {
 
 const POOL := [
 	# Passives
-	{id = "tough_hide", name = "Tough Hide", type = "passive", rarity = "common", max_stacks = 5,
+	{id = "tough_hide", name = "Tough Hide", type = "passive", rarity = "common", max_stacks = -1,
 		desc = "+5 max HP and heal 5."},
-	{id = "sharpened_blade", name = "Sharpened Blade", type = "passive", rarity = "common", max_stacks = 5,
+	{id = "sharpened_blade", name = "Sharpened Blade", type = "passive", rarity = "common", max_stacks = -1,
 		desc = "+1 attack."},
 	{id = "thorns", name = "Thorns", type = "passive", rarity = "common", max_stacks = 3,
 		desc = "Enemies that hit you in melee take 1 damage."},
@@ -118,7 +119,7 @@ static func can_offer(player, card: Dictionary) -> bool:
 	var stacks: int = player.card_stacks.get(card.id, 0)
 	if card.type == "skill" and stacks == 0 and player.skills.size() >= player.MAX_SKILLS:
 		return false
-	return stacks < card.max_stacks
+	return card.max_stacks < 0 or stacks < card.max_stacks
 
 
 ## Text shown on the card; owned skills are offered as upgrades.
