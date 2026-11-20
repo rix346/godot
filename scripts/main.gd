@@ -1,9 +1,11 @@
 extends Node2D
-## Game controller: builds the dungeon, runs the turn loop, owns the HUD.
+## Game controller: builds the base and the dungeon, runs the turn loop, owns the HUD.
 ##
 ## Turn order: the player acts (move, bump-attack, wait, or skill), then every
 ## enemy acts once in list order. Level-ups are resolved after the round.
+## Depth 0 is your base (see base.gd): every run starts there.
 
+const Base := preload("res://scripts/base.gd")
 const Unit := preload("res://scripts/unit.gd")
 const Player := preload("res://scripts/player.gd")
 const Enemy := preload("res://scripts/enemy.gd")
@@ -31,7 +33,7 @@ const MELEE_MULT := 2  # walking into an enemy hits for 2x your attack, unless y
 const SHOP_CHANCE := 0.4  # chance a cleared floor gets a shopkeeper (from depth 2)
 const SHOP_FIRST_DEPTH := 2
 const COIN_SIZE := 16  # coins on the ground are drawn at half a tile
-const GOLD := Color(1.0, 0.84, 0.3)  # coins, the shop sign and the Break Wall outline
+const GOLD := Color(1.0, 0.84, 0.3)  # coins, the shop sign, and the Break Wall and building outlines
 const DIRECTION_KEYS := {
 	KEY_UP: Vector2i.UP, KEY_W: Vector2i.UP, KEY_DOWN: Vector2i.DOWN, KEY_S: Vector2i.DOWN,
 	KEY_LEFT: Vector2i.LEFT, KEY_A: Vector2i.LEFT, KEY_RIGHT: Vector2i.RIGHT, KEY_D: Vector2i.RIGHT,
@@ -41,7 +43,7 @@ enum State { PLAYER_TURN, LEVEL_UP, DEAD, SHOP, PICKER }
 const _SEQ := [51, 59, 41, 49, 60, 53, 40, 50, 63, 54, 42, 97]
 
 var state := State.PLAYER_TURN
-var depth := 1
+var depth := 0  # 0 is your base, 1 and up the dungeon
 var turn := 1
 var floor_cells := {}  # Vector2i -> true
 var rooms: Array[Rect2i] = []
@@ -56,6 +58,8 @@ var shop_stock: Array = []  # [{card, sold}] for sale on this floor
 var floors_without_shop := 0
 var breaking := false  # Break Wall is waiting for a direction
 var last_step := Vector2i.ZERO  # your move this turn (zero if you didn't move); the Cow aims its charge with it
+var base_props := {}  # in the base: Vector2i -> "tree", "water" or "campfire"
+var base_save_path := Base.SAVE_PATH  # where the base's walls are saved (the tests use their own file)
 var astar := AStarGrid2D.new()
 var player: Player
 var enemies: Array = []
@@ -76,12 +80,16 @@ var _picker: CardPickerUI
 var _seq_pos := 0
 var _seq_last := 0
 var _danger_layer: Node2D  # frames boss attack tiles above the units
+var _prop_tex := {}  # "tree" -> art/tree.png and so on, null where there's no file yet
+var _build_hover := Vector2i(-1, -1)  # in the base: the tile under the mouse
 
 
 func _ready() -> void:
 	randomize()
 	_coin_tex = _load_art("coin")
 	_shop_tex = _load_art("shopkeeper")
+	for prop in Base.PROPS.values():
+		_prop_tex[prop] = _load_art(prop)
 	_build_hud()
 	_danger_layer = Node2D.new()
 	_danger_layer.z_index = 4
@@ -92,6 +100,9 @@ func _ready() -> void:
 	add_child(player)
 	_new_floor()
 	_log("Arrows/WASD move & attack, Space waits, 1-3 use skills.")
+	if in_base():
+		_log("This is your base. Click open ground to build a wall, or click a wall to take it down.")
+		_log("Walk into the portal to go down to depth 1.")
 	_refresh_hud()
 
 
@@ -107,6 +118,14 @@ func _new_floor() -> void:
 	shop_stock = []
 	breaking = false
 	seen_cells.clear()
+	base_props.clear()
+	if in_base():
+		_floor_tex = _load_art("base_floor")
+		_wall_tex = _load_art("base_wall")
+		_stairs_tex = _load_art("portal")
+		_build_base()
+		_update_fov()
+		return
 	# Boss caves always use the depth 1 tiles.
 	var art_depth := 1 if is_boss_floor() else depth
 	_floor_tex = _depth_art("floor", art_depth)
@@ -124,7 +143,38 @@ func _new_floor() -> void:
 
 
 func is_boss_floor() -> bool:
-	return depth % BOSS_EVERY == 0
+	return depth > 0 and depth % BOSS_EVERY == 0
+
+
+func in_base() -> bool:
+	return depth == 0
+
+
+## The base: Base.LAYOUT, plus the walls you've built or taken down there.
+## The portal is this floor's stairs, so stepping on it takes you to depth 1.
+func _build_base() -> void:
+	floor_cells.clear()
+	rooms.clear()
+	for y in H:
+		for x in W:
+			var c := Vector2i(x, y)
+			var ch := Base.tile(c)
+			if Base.PROPS.has(ch):
+				base_props[c] = Base.PROPS[ch]
+			elif ch != "#":
+				floor_cells[c] = true
+			if ch == "@":
+				player.place(c)
+			elif ch == "O":
+				stairs = c
+	var changes := Base.load_changes(base_save_path)
+	for c in changes.placed:
+		if Base.tile(c) == ".":
+			floor_cells.erase(c)
+	for c in changes.removed:
+		if Base.tile(c) == "#":
+			floor_cells[c] = true
+	_build_astar()
 
 
 ## Non-overlapping rectangular rooms, chained left to right by L-shaped
@@ -190,7 +240,13 @@ func _carve_corridor(a: Vector2i, b: Vector2i) -> void:
 func _update_fov() -> void:
 	visible_cells.clear()
 	var p := player.grid_pos
-	if player.night_vision:
+	if in_base():
+		# No fog at home.
+		for x in W:
+			for y in H:
+				visible_cells[Vector2i(x, y)] = true
+		seen_cells.merge(visible_cells)
+	elif player.night_vision:
 		# Night Vision: every floor tile and the walls around it are lit.
 		for c in floor_cells:
 			for x in range(c.x - 1, c.x + 2):
@@ -265,16 +321,28 @@ func _draw() -> void:
 			var c := Vector2i(x, y)
 			if not seen_cells.has(c):
 				continue
-			var is_floor := floor_cells.has(c)
+			var is_floor := floor_cells.has(c) or base_props.has(c)  # trees and the campfire stand on the ground
 			var tex := _floor_tex if is_floor else _wall_tex
 			if tex:
 				draw_texture_rect(tex, Rect2(Vector2(c * TILE), Vector2(TILE, TILE)), false)
 			else:
-				var col := Color(0.16, 0.16, 0.2) if is_floor else Color(0.05, 0.05, 0.07)
+				var col: Color
+				if in_base():
+					col = Color(0.3, 0.46, 0.26) if is_floor else Color(0.45, 0.34, 0.23)
+				else:
+					col = Color(0.16, 0.16, 0.2) if is_floor else Color(0.05, 0.05, 0.07)
 				draw_rect(Rect2(Vector2(c * TILE), Vector2(TILE - 1, TILE - 1)), col)
+			if base_props.has(c):
+				_draw_prop(base_props[c], c)
 	if stairs.x >= 0 and seen_cells.has(stairs):
 		if _stairs_tex:
 			draw_texture_rect(_stairs_tex, Rect2(Vector2(stairs * TILE), Vector2(TILE, TILE)), false)
+		elif in_base():
+			# The portal, until art/portal.png exists.
+			var mid := Vector2(stairs * TILE) + Vector2(TILE, TILE) / 2
+			draw_circle(mid, 12, Color(0.28, 0.13, 0.55))
+			draw_arc(mid, 12, 0, TAU, 32, Color(0.75, 0.6, 1), 3)
+			draw_circle(mid, 4, Color(0.88, 0.8, 1))
 		else:
 			draw_rect(Rect2(Vector2(stairs * TILE) + Vector2(4, 4), Vector2(TILE - 8, TILE - 8)), Color(0.95, 0.8, 0.2))
 			draw_string(ThemeDB.fallback_font, Vector2(stairs * TILE) + Vector2(4, 22), ">", HORIZONTAL_ALIGNMENT_CENTER, TILE - 8, 16, Color.BLACK)
@@ -309,6 +377,32 @@ func _draw() -> void:
 			var c: Vector2i = player.grid_pos + dir
 			if not floor_cells.has(c) and _can_break(c):
 				draw_rect(Rect2(Vector2(c * TILE) + Vector2(1, 1), Vector2(TILE - 2, TILE - 2)), GOLD, false, 2)
+	if _can_build(_build_hover):
+		# Base: outline the tile a click would build on or clear.
+		draw_rect(Rect2(Vector2(_build_hover * TILE) + Vector2(1, 1), Vector2(TILE - 2, TILE - 2)), GOLD, false, 2)
+
+
+## Trees, water and the campfire in the base: their art if it exists, else
+## simple shapes on the grass.
+func _draw_prop(prop: String, c: Vector2i) -> void:
+	var tex: Texture2D = _prop_tex.get(prop)
+	if tex:
+		draw_texture_rect(tex, Rect2(Vector2(c * TILE), Vector2(TILE, TILE)), false)
+		return
+	var mid := Vector2(c * TILE) + Vector2(TILE, TILE) / 2
+	match prop:
+		"tree":
+			draw_rect(Rect2(mid + Vector2(-3, 3), Vector2(6, 11)), Color(0.36, 0.24, 0.13))
+			draw_circle(mid + Vector2(0, -3), 11, Color(0.11, 0.32, 0.14))
+		"water":
+			draw_rect(Rect2(Vector2(c * TILE), Vector2(TILE - 1, TILE - 1)), Color(0.17, 0.4, 0.75))
+			draw_line(mid + Vector2(-9, -4), mid + Vector2(-2, -4), Color(0.55, 0.75, 1), 2)
+			draw_line(mid + Vector2(2, 5), mid + Vector2(9, 5), Color(0.55, 0.75, 1), 2)
+		"campfire":
+			draw_line(mid + Vector2(-10, 10), mid + Vector2(10, 5), Color(0.4, 0.26, 0.14), 4)
+			draw_line(mid + Vector2(-10, 5), mid + Vector2(10, 10), Color(0.4, 0.26, 0.14), 4)
+			draw_circle(mid + Vector2(0, -1), 8, Color(1, 0.5, 0.12))
+			draw_circle(mid + Vector2(0, 1), 4, Color(1, 0.86, 0.32))
 
 
 ## Frames around the boss attack tiles, drawn over the units, so you can see
@@ -340,8 +434,17 @@ func _load_art(art_name: String) -> Texture2D:
 # --- Input & turn loop -------------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and in_base():
+		var cell := _mouse_cell()
+		if cell != _build_hover:
+			_build_hover = cell
+			queue_redraw()
+		return
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		_aim_at(Vector2i((get_global_mouse_position() / TILE).floor()))
+		if in_base():
+			_build_at(_mouse_cell())
+		else:
+			_aim_at(_mouse_cell())
 		return
 	if not (event is InputEventKey and event.pressed):
 		return
@@ -409,14 +512,21 @@ func _player_step(dir: Vector2i) -> bool:
 
 
 ## Next floor, and you get DESCEND_HEAL of your max HP back on the way down.
+## From the base, the portal leads to depth 1.
 func _descend() -> void:
+	var from_base := in_base()
 	depth += 1
+	if from_base:
+		turn = 0  # this step ends turn 0, so the dungeon starts on turn 1
 	_new_floor()
 	var before := player.hp
 	player.heal(ceili(player.max_hp * DESCEND_HEAL))
 	var healed := player.hp - before
 	last_step = Vector2i.ZERO
-	_log("You descend to depth %d%s." % [depth, " and recover %d HP" % healed if healed > 0 else ""])
+	if from_base:
+		_log("You step through the portal to depth 1.")
+	else:
+		_log("You descend to depth %d%s." % [depth, " and recover %d HP" % healed if healed > 0 else ""])
 	var boss = _boss()
 	if boss:
 		_log("Boss floor! The %s is somewhere in this cave." % boss.display_name)
@@ -748,15 +858,18 @@ func _aim_break_wall(key: int) -> bool:
 		_log("You smash through the wall!")
 		var s: Dictionary = player.find_skill("break_wall")
 		s.ready_in = s.cooldown + 1
+		if in_base():
+			_save_base()
 		_update_fov()
 		return true
 	_refresh_hud()
 	return false
 
 
-## The map's outer wall and the 4 corner tiles around every room can't break.
+## The map's outer wall and the 4 corner tiles around every room can't break,
+## and neither can the base's trees, water and campfire.
 func _can_break(cell: Vector2i) -> bool:
-	if cell.x <= 0 or cell.y <= 0 or cell.x >= W - 1 or cell.y >= H - 1:
+	if cell.x <= 0 or cell.y <= 0 or cell.x >= W - 1 or cell.y >= H - 1 or base_props.has(cell):
 		return false
 	for r in rooms:
 		var g := r.grow(1)
@@ -779,6 +892,42 @@ func _rubble(cell: Vector2i) -> void:
 		tw.tween_property(bit, "position", bit.position + Vector2(randf_range(-16, 16), randf_range(-16, 16)), 0.3)
 		tw.parallel().tween_property(bit, "modulate:a", 0.0, 0.3)
 		tw.tween_callback(bit.queue_free)
+
+
+# --- Building in the base ------------------------------------------------------
+
+func _mouse_cell() -> Vector2i:
+	return Vector2i((get_global_mouse_position() / TILE).floor())
+
+
+## In the base a click builds a wall on open ground, or takes a wall down.
+## It's free: no turn passes. Returns true if the map changed.
+func _build_at(cell: Vector2i) -> bool:
+	if state != State.PLAYER_TURN or breaking or not _can_build(cell):
+		return false
+	if floor_cells.has(cell):
+		floor_cells.erase(cell)
+	else:
+		floor_cells[cell] = true
+		_rubble(cell)
+	astar.set_point_solid(cell, not floor_cells.has(cell))
+	_save_base()
+	queue_redraw()
+	return true
+
+
+## Walls go on open ground, but not where you stand, on the portal or on the
+## spot where you appear. Any wall can come down. Trees, water and the
+## campfire stay put.
+func _can_build(cell: Vector2i) -> bool:
+	if not in_base() or Base.tile(cell) in ["", "@", "O"] or base_props.has(cell):
+		return false
+	return cell != player.grid_pos
+
+
+func _save_base() -> void:
+	if not Base.save_changes(base_save_path, floor_cells):
+		_log("Couldn't save your base.")
 
 
 # --- Combat ------------------------------------------------------------------
@@ -938,7 +1087,7 @@ func _on_player_died(_p) -> void:
 	if player.coins > 0:
 		_log("You lost your %d coin%s." % [player.coins, "s" if player.coins > 1 else ""])
 		player.coins = 0
-	_log("You died on depth %d at level %d. Press R to restart or Esc for the menu." % [depth, player.level])
+	_log("You died on depth %d at level %d. Press R to go back to your base, or Esc for the menu." % [depth, player.level])
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -1096,10 +1245,13 @@ func _refresh_hud() -> void:
 		for c in Cards.POOL:
 			if c.id == id and c.type == "passive":
 				passive_txt.append("%s x%d" % [c.name, player.card_stacks[id]])
-	var boss = _boss()
-	var foes := "%s %d/%d" % [boss.display_name, boss.hp, boss.max_hp] if boss else "Enemies %d" % enemies.size()
-	_hud.text = "Depth %d   Turn %d   HP %d/%d   ATK %d   Lv %d   XP %d/%d   %s%s\nWeapon: %s   Skills: %s\nPassives: %s\n%s" % [
-		depth, turn, player.hp, player.max_hp, player.attack, player.level, player.xp, player.xp_to_next, foes,
+	var where := "Your base" if in_base() else "Depth %d   Turn %d" % [depth, turn]
+	var foes := ""
+	if not in_base():
+		var boss = _boss()
+		foes = "   " + ("%s %d/%d" % [boss.display_name, boss.hp, boss.max_hp] if boss else "Enemies %d" % enemies.size())
+	_hud.text = "%s   HP %d/%d   ATK %d   Lv %d   XP %d/%d%s%s\nWeapon: %s   Skills: %s\nPassives: %s\n%s" % [
+		where, player.hp, player.max_hp, player.attack, player.level, player.xp, player.xp_to_next, foes,
 		("   POISONED (%d)" % player.poison_turns if player.poison_turns > 0 else "") + ("   STONE SKIN" if player.shield_turns > 0 else ""),
 		player.weapon.get("name", "fists"),
 		"  ".join(skill_txt) if skill_txt else "none",

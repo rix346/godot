@@ -14,6 +14,10 @@ Anything without a file is drawn as a coloured square with a letter.
 | `hud.png` | bottom HUD background (256x64, drawn as a 9-patch at 2x) |
 | `coin.png` | coins: drawn at half size (16x16) on the floor, full size in the HUD and shop |
 | `shopkeeper.png` | the shopkeeper who sells cards (until it exists, a purple square with a `$`) |
+| `base_floor.png`, `base_wall.png` | ground and walls in your base (until they exist, green grass and brown walls) |
+| `tree.png`, `campfire.png` | trees and the campfire in your base, drawn on top of `base_floor.png` (so transparency works) |
+| `water.png` | the pond in your base |
+| `portal.png` | the portal in your base that leads down to depth 1, drawn on top of `base_floor.png` (until it exists, a purple ring) |
 | `cow.png` | the Cow, the boss of every 5th depth (until it exists, a white square with a `C`). Boss caves use `floor.png`, `wall.png` and `stairs.png` (or the `_1` versions) |
 | `rat.png`, `bat.png`, `goblin.png`, `archer.png`, `orc.png`, `brute.png`, `wraith.png`, `spider.png`, `knight.png` | enemies (name from `KINDS` in `scripts/enemy.gd`, lowercase) |
 

@@ -1,10 +1,12 @@
 extends SceneTree
 # Headless check of every card and skill on a deep floor: applies all cards,
 # fires each skill, and plays turns until death or a turn cap. Before that it
-# checks the rules for weapon offers, the stairs heal, coins, the shop and its
-# reroll, Night Vision, Break Wall, the enemy cap, mix and elites, boss floors
-# and each of the Cow's attacks, double melee damage, natural healing and the
-# Cow's arrow resistance, and prints FAIL for anything that's broken.
+# checks the base (its layout, building, saving and the portal), the rules for
+# weapon offers, the stairs heal, coins, the shop and its reroll, Night Vision,
+# Break Wall, the enemy cap, mix and elites, boss floors and each of the Cow's
+# attacks, double melee damage, natural healing and the Cow's arrow
+# resistance, and prints FAIL for anything that's broken.
+const Base := preload("res://scripts/base.gd")
 const Cards := preload("res://scripts/cards.gd")
 const Enemy := preload("res://scripts/enemy.gd")
 const Cow := preload("res://scripts/cow.gd")
@@ -30,6 +32,7 @@ func _initialize():
 	var main = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
 	await process_frame
+	check_base_rules(main)
 	check_rules(main)
 	check_depth_rules(main)
 	check_combat_rules(main)
@@ -66,6 +69,73 @@ func _initialize():
 	print("depth ", main.depth, " turn ", main.turn, " hp ", main.player.hp, " coins ", main.player.coins)
 	print("all rule checks passed" if failures == 0 else "%d rule checks FAILED" % failures)
 	quit()
+
+
+## The base, then through its portal to depth 1, where check_rules carries on.
+func check_base_rules(main) -> void:
+	var player = main.player
+	# Build from the untouched layout, saving to a test file instead of the real base.
+	main.base_save_path = "user://feature_test_base.json"
+	DirAccess.remove_absolute(main.base_save_path)
+	main._new_floor()
+
+	# Every run starts in the base: the layout from base.gd, no enemies, no fog.
+	check(main.depth == 0 and main.in_base(), "the game starts in the base")
+	check(Base.LAYOUT.size() == main.H and Base.LAYOUT.all(func(r): return r.length() == main.W), "the base layout is 30 x 18")
+	var first := {}  # layout character -> its first cell
+	var count := {}
+	for y in main.H:
+		for x in main.W:
+			var ch: String = Base.LAYOUT[y][x]
+			count[ch] = count.get(ch, 0) + 1
+			if not first.has(ch):
+				first[ch] = Vector2i(x, y)
+	check(count.get("@", 0) == 1 and count.get("O", 0) == 1, "the base has one start and one portal")
+	var start: Vector2i = first["@"]
+	var portal: Vector2i = first["O"]
+	check(player.grid_pos == start, "you appear on the @ (%s)" % player.grid_pos)
+	check(main.stairs == portal, "the portal is the way down")
+	check(main.enemies.is_empty() and main.visible_cells.size() == main.W * main.H, "no enemies and no fog in the base")
+	check(main.astar.get_id_path(start, portal).size() > 1, "you can walk from the start to the portal")
+	main._refresh_hud()
+	check(main._hud.text.begins_with("Your base"), "the HUD says you're in your base")
+
+	# A click builds a wall on open ground or takes a wall down, and no turn passes.
+	var turn_before: int = main.turn
+	var spot := Vector2i(-1, -1)
+	for d in [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]:
+		if spot.x < 0 and Base.tile(start + d) == ".":
+			spot = start + d
+	var wall: Vector2i = first["#"]
+	check(main._build_at(spot) and not main.floor_cells.has(spot) and main.astar.is_point_solid(spot), "a click builds a wall")
+	check(main._build_at(wall) and main.floor_cells.has(wall) and not main.astar.is_point_solid(wall), "a click takes a wall down")
+	check(main.turn == turn_before, "building doesn't use a turn")
+	for c in [start, portal, first["T"], first["~"], first["f"], Vector2i(-1, 3), Vector2i(main.W, 3)]:
+		check(not main._build_at(c), "can't build on %s (%s)" % [c, Base.tile(c)])
+	player.place(start + Vector2i(0, 1))
+	check(not main._build_at(player.grid_pos), "can't build where you stand")
+	player.place(start)
+
+	# The changes are saved, and come back the next time you're in the base.
+	check(FileAccess.file_exists(main.base_save_path), "the base was saved")
+	main._new_floor()
+	check(not main.floor_cells.has(spot) and main.floor_cells.has(wall), "the saved base loads back")
+	main._build_at(spot)
+	main._build_at(wall)
+	var saved: Dictionary = Base.load_changes(main.base_save_path)
+	check(saved.placed.is_empty() and saved.removed.is_empty(), "undoing the changes saves an untouched base")
+	DirAccess.remove_absolute(main.base_save_path)
+
+	# Walking into the portal starts the run on depth 1, turn 1.
+	player.place(portal + Vector2i.LEFT)
+	var ev := InputEventKey.new()
+	ev.pressed = true
+	ev.keycode = KEY_RIGHT
+	main._unhandled_input(ev)
+	check(main.depth == 1 and not main.in_base(), "the portal leads to depth 1")
+	check(main.turn == 1, "the dungeon starts on turn 1 (turn %d)" % main.turn)
+	check(main.enemies.size() > 0 and main.base_props.is_empty(), "depth 1 is a normal floor")
+	check(not main._build_at(player.grid_pos + Vector2i.RIGHT), "no building outside the base")
 
 
 func check_rules(main) -> void:
