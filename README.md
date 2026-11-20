@@ -1,10 +1,10 @@
 # Dungeons: To The Bottom
 
-A turn-based dungeon crawler made in Godot. Fight your way down an endless dungeon, one floor at a time. Every time you level up, pick 1 of 3 cards (passives, skills or weapons) and build a different hero each run. Collect coins and spend them at the shopkeeper for even more cards, and face a boss every 5 floors.
+A turn-based dungeon crawler made in Godot. Every run starts in your base, a calm place where you can build. From there, fight your way down an endless dungeon, one floor at a time. Every time you level up, pick 1 of 3 cards (passives, skills or weapons) and build a different hero each run. Collect coins and spend them at the shopkeeper for even more cards, and face a boss every 5 floors.
 
 ![Title screen](docs/title.png)
 
-**Contents:** [Running the game](#running-the-game) · [How to play](#how-to-play) · [Controls](#controls) · [Enemies](#enemies) · [Boss floors](#boss-floors) · [Coins and the shop](#coins-and-the-shop) · [Cards](#cards) · [Weapons](#weapons) · [Skills](#skills) · [Passives](#passives) · [Adding art](#adding-art) · [For developers](#for-developers) · [Credits](#credits)
+**Contents:** [Running the game](#running-the-game) · [How to play](#how-to-play) · [Controls](#controls) · [Your base](#your-base) · [Enemies](#enemies) · [Boss floors](#boss-floors) · [Coins and the shop](#coins-and-the-shop) · [Cards](#cards) · [Weapons](#weapons) · [Skills](#skills) · [Passives](#passives) · [Adding art](#adding-art) · [For developers](#for-developers) · [Credits](#credits)
 
 ---
 
@@ -38,6 +38,7 @@ To try a change before it's merged, go to **Current Branch → Pull Requests**, 
 
 ![Gameplay](docs/game.png)
 
+- **Your base.** Every run starts in your base. There are no enemies there, and you can build walls. Walk into the portal to go down to depth 1. See [Your base](#your-base).
 - **It's turn-based.** Nothing moves until you do. After each of your actions, every enemy takes its turn.
 - **Attack by walking into an enemy.** With a melee weapon or your fists, that hits for **2× your attack** (the ATK in the bar at the bottom). Holding a bow it's a plain 1× hit, since the bow does its damage by shooting.
 - **Healing.** You heal **1 HP every 10 turns** on your own, and 30% of your max HP every time you take the stairs. Cards like Second Wind, Vampiric Fangs, Bloodlust and Mend heal more.
@@ -46,7 +47,7 @@ To try a change before it's merged, go to **Current Branch → Pull Requests**, 
 - **Coins and the shop.** Enemies sometimes drop coins. Spend them at the shopkeeper, who shows up on some floors. See [Coins and the shop](#coins-and-the-shop).
 - **Fog of war.** You see 7 tiles around you, and walls block your view. Places you've already seen stay on the map, darker.
 - **Level up.** Kills give XP. Each level-up pauses the game and offers **3 cards**, and you pick one. Each level needs a bit more XP than the last.
-- **Dying.** The run is over and your coins are lost. Press **R** to start a new one, or **Esc** to go back to the menu.
+- **Dying.** The run is over and your coins are lost. Press **R** to go back to your base and start a new run, or **Esc** to go back to the menu.
 
 The bar at the bottom shows depth, turn, HP, attack, level, XP, enemies left, your weapon, skills, passives and the last few combat messages. Your coins are in its top-right corner.
 
@@ -62,10 +63,25 @@ You start with **20 HP** and **3 attack**.
 | Space or `.` | Wait one turn |
 | 1, 2, 3 | Use skill 1-3. Break Wall then asks for a direction (arrows / WASD) |
 | Left mouse click on an enemy | Choose the target for a ranged weapon (doesn't use a turn) |
+| Left mouse click in your base | Build a wall on open ground, or take a wall down (doesn't use a turn) |
 | 1, 2, 3 or click | Pick a card on the level-up screen, or buy one in the shop |
 | Walk into the shopkeeper | Open the shop (doesn't use a turn) |
-| R | Restart after dying, or reroll the shop's cards (5 coins) |
+| R | Go back to your base after dying, or reroll the shop's cards (5 coins) |
 | Esc | Leave the shop, cancel Break Wall, or go back to the title screen |
+
+---
+
+## Your base
+
+![Your base](docs/base.png)
+
+Every run starts in your base, and when you die, **R** brings you back there. It's a calm place: no enemies and no fog.
+
+- **Build.** Click open ground to put a wall there, and click a wall to take it down. Building is free and doesn't use a turn. The gold outline shows where a click will build. You can't build on trees, water, the campfire, the portal, where you stand, or the spot where you appear.
+- **It's saved.** Your walls stay after you die and after you quit the game. In the browser version on itch.io they're saved in your browser. Private windows and clearing your browsing data lose them.
+- **Go down.** Walk into the portal between the four stones to start the run on depth 1.
+
+More is planned for the base later, like people to meet and crafting.
 
 ---
 
@@ -239,6 +255,7 @@ All art lives in [`art/`](art/README.md) and is picked up **by file name**. Drop
 - UI: `hud.png` (bottom bar) and `menu_panel.png` (title screen scroll).
 - Coins and the shop: `coin.png` (32×32, drawn at half size on the floor) and `shopkeeper.png` (32×32).
 - Bosses: `cow.png` (32×32). Until it exists, the Cow is a white square with a `C`.
+- Your base: `base_floor.png`, `base_wall.png`, `tree.png`, `water.png`, `campfire.png` and `portal.png` (32×32). Until they exist, the base is drawn with plain shapes.
 
 The full list is in [art/README.md](art/README.md). **Commit each `.png` together with its `.png.import` file.**
 
@@ -251,7 +268,8 @@ Written in GDScript. The UI is built in code, so there are only two scenes.
 | File | What's in it |
 |---|---|
 | `scenes/title.tscn`, `scripts/title.gd` | Title screen (Play / Credits / Exit). Credits text is `CREDITS` |
-| `scenes/main.tscn`, `scripts/main.gd` | Dungeon generation (rooms, and caves on boss floors), fog of war, turn loop, combat, weapons, skills, coins, shop, HUD |
+| `scenes/main.tscn`, `scripts/main.gd` | The base and building in it, dungeon generation (rooms, and caves on boss floors), fog of war, turn loop, combat, weapons, skills, coins, shop, HUD |
+| `scripts/base.gd` | The base's starting map (`LAYOUT`, one character per tile) and saving the walls players build |
 | `scripts/unit.gd` | Shared grid unit: HP, drawing, damage, movement |
 | `scripts/player.gd` | XP, levels and the stats cards change |
 | `scripts/enemy.gd` | Enemy types (`KINDS`), depth scaling, the tougher mix deeper down (`random_kind`) and elites |
@@ -260,8 +278,9 @@ Written in GDScript. The UI is built in code, so there are only two scenes.
 | `scripts/level_up_ui.gd` | The 3-card pick screen |
 | `scripts/shop_ui.gd` | The shop screen. Prices are in `PRICES`, the reroll cost in `REROLL_PRICE` |
 | `tools/sim.gd` | Headless bot that plays random turns (smoke test) |
-| `tools/feature_test.gd` | Checks the coin, shop, Night Vision, Break Wall, enemy cap, elite and boss rules (each of the Cow's attacks), double melee damage, natural healing and arrows against the Cow, then applies every card and fires every skill on a depth-3 floor |
+| `tools/feature_test.gd` | Checks the base (layout, building, saving, the portal), the coin, shop, Night Vision, Break Wall, enemy cap, elite and boss rules (each of the Cow's attacks), double melee damage, natural healing and arrows against the Cow, then applies every card and fires every skill on a depth-3 floor |
 
+**Changing the base:** edit `LAYOUT` in `scripts/base.gd`. The key is at the top of the file. Only the walls players change are saved, so edits to `LAYOUT` reach everyone's base. To start your own base over, delete `dungeons_to_the_bottom_base.json` from Godot's user data folder (in Godot: **Project → Open User Data Folder**).
 **Adding an enemy:** add a line to `KINDS` in `scripts/enemy.gd`. The optional keys are `actions`, `range`, `slow` and `poison`.
 **Adding a boss:** make a script that extends `scripts/enemy.gd`, like `scripts/cow.gd`, with a `boss_turn(game)` function. `main.gd` calls it instead of the normal enemy turn. Tiles you put in its `danger` list are marked on the map (`danger_color`). Spawn it in `_spawn_boss()` in `main.gd`.
 **Adding a card:** add an entry to `POOL` in `scripts/cards.gd`. Passives go in `apply()`, skills in `_use_skill()` in `main.gd`, and weapons use keys like `atk`, `crit`, `reach`, `ranged`.
