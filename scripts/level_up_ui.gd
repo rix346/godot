@@ -50,11 +50,12 @@ func show_choices(player, cards: Array) -> void:
 
 
 ## One card: the art/card_<rarity>.png frame scaled up, name on top, then
-## rarity/type, description, and the key to press at the bottom.
-func _make_card(i: int, card: Dictionary, player) -> Button:
+## rarity/type, description, and the key to press at the bottom. `s` shrinks
+## the whole card.
+func _make_card(i: int, card: Dictionary, player, s := 1.0, show_key := true) -> Button:
 	var b := Button.new()
-	b.custom_minimum_size = CARD_SIZE
-	b.pivot_offset = CARD_SIZE / 2
+	b.custom_minimum_size = CARD_SIZE * s
+	b.pivot_offset = CARD_SIZE * s / 2
 	var frame_path := "res://art/card_%s.png" % card.rarity
 	if ResourceLoader.exists(frame_path):
 		var frame := StyleBoxTexture.new()
@@ -74,7 +75,7 @@ func _make_card(i: int, card: Dictionary, player) -> Button:
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
 	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 20)
+		margin.add_theme_constant_override("margin_" + side, roundi(20 * s))
 	b.add_child(margin)
 	var box := VBoxContainer.new()
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -82,22 +83,23 @@ func _make_card(i: int, card: Dictionary, player) -> Button:
 	margin.add_child(box)
 
 	var ink := Color(0.12, 0.12, 0.18)
-	box.add_child(_label(card.name, 22, ink))
-	box.add_child(_label("%s %s" % [card.rarity.to_upper(), card.type.to_upper()], 11, ink.lightened(0.35)))
+	box.add_child(_label(card.name, roundi(22 * s), ink))
+	box.add_child(_label("%s %s" % [card.rarity.to_upper(), card.type.to_upper()], roundi(11 * s), ink.lightened(0.35)))
 	var icon_path := "res://art/%s_%s.png" % [card.type, card.id]
 	if ResourceLoader.exists(icon_path):
 		var icon := TextureRect.new()
 		icon.texture = load(icon_path)
-		icon.custom_minimum_size = Vector2(64, 64)  # 32x32 art at 2x
+		icon.custom_minimum_size = Vector2(64, 64) * s  # 32x32 art at 2x
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		box.add_child(icon)
-	var desc := _label(Cards.describe(player, card), 14, ink)
+	var desc := _label(Cards.describe(player, card), roundi(14 * s), ink)
 	desc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	desc.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	box.add_child(desc)
-	box.add_child(_label("[%d]" % (i + 1), 13, ink.lightened(0.35)))
+	if show_key:
+		box.add_child(_label("[%d]" % (i + 1), 13, ink.lightened(0.35)))
 	return b
 
 
