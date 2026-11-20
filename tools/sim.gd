@@ -2,6 +2,8 @@ extends SceneTree
 # Headless smoke test: plays random turns and auto-picks cards.
 func _initialize():
 	var main = load("res://scenes/main.tscn").instantiate()
+	main.base_save_path = "user://sim_base.json"  # not your real base: the bot can walk into trees and chop them
+	DirAccess.remove_absolute(main.base_save_path)
 	root.add_child(main)
 	await process_frame
 	var keys = [KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_1, KEY_2, KEY_3, KEY_SPACE]
@@ -31,4 +33,5 @@ func _initialize():
 		main._unhandled_input(ev)
 	print("turn ", main.turn, " depth ", main.depth, " lvl ", main.player.level, " picks ", picks, " hp ", main.player.hp, "/", main.player.max_hp, " coins ", main.player.coins, " stacks ", main.player.card_stacks)
 	print(main._hud.text)
+	DirAccess.remove_absolute(main.base_save_path)
 	quit()

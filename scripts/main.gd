@@ -34,6 +34,7 @@ const SHOP_CHANCE := 0.4  # chance a cleared floor gets a shopkeeper (from depth
 const SHOP_FIRST_DEPTH := 2
 const COIN_SIZE := 16  # coins on the ground are drawn at half a tile
 const GOLD := Color(1.0, 0.84, 0.3)  # coins, the shop sign, and the Break Wall and building outlines
+const WOOD_COLOR := Color(0.85, 0.62, 0.36)  # the "+2 wood" you see when a tree comes down
 const DIRECTION_KEYS := {
 	KEY_UP: Vector2i.UP, KEY_W: Vector2i.UP, KEY_DOWN: Vector2i.DOWN, KEY_S: Vector2i.DOWN,
 	KEY_LEFT: Vector2i.LEFT, KEY_A: Vector2i.LEFT, KEY_RIGHT: Vector2i.RIGHT, KEY_D: Vector2i.RIGHT,
@@ -59,7 +60,8 @@ var floors_without_shop := 0
 var breaking := false  # Break Wall is waiting for a direction
 var last_step := Vector2i.ZERO  # your move this turn (zero if you didn't move); the Cow aims its charge with it
 var base_props := {}  # in the base: Vector2i -> "tree", "water" or "campfire"
-var base_save_path := Base.SAVE_PATH  # where the base's walls are saved (the tests use their own file)
+var base_save_path := Base.SAVE_PATH  # where the base is saved (the tests use their own file)
+var wood := 0  # from chopping trees in the base; walls cost it. Saved with the base.
 var astar := AStarGrid2D.new()
 var player: Player
 var enemies: Array = []
@@ -101,7 +103,7 @@ func _ready() -> void:
 	_new_floor()
 	_log("Arrows/WASD move & attack, Space waits, 1-3 use skills.")
 	if in_base():
-		_log("This is your base. Click open ground to build a wall, or click a wall to take it down.")
+		_log("This is your base. Walk into trees to chop wood. Click to build a wall (%d wood) or take one down." % Base.WALL_COST)
 		_log("Walk into the portal to go down to depth 1.")
 	_refresh_hud()
 
@@ -150,7 +152,8 @@ func in_base() -> bool:
 	return depth == 0
 
 
-## The base: Base.LAYOUT, plus the walls you've built or taken down there.
+## The base: Base.LAYOUT, plus the trees you've chopped down and the walls
+## you've built or taken down there, and your wood.
 ## The portal is this floor's stairs, so stepping on it takes you to depth 1.
 func _build_base() -> void:
 	floor_cells.clear()
@@ -168,12 +171,17 @@ func _build_base() -> void:
 			elif ch == "O":
 				stairs = c
 	var changes := Base.load_changes(base_save_path)
-	for c in changes.placed:
-		if Base.tile(c) == ".":
+	for c in changes.chopped:
+		if Base.tile(c) == "T":
+			base_props.erase(c)
+			floor_cells[c] = true
+	for c in changes.placed:  # after chopping: a wall can stand where a tree was
+		if Base.tile(c) in [".", "T"] and not base_props.has(c):
 			floor_cells.erase(c)
 	for c in changes.removed:
 		if Base.tile(c) == "#":
 			floor_cells[c] = true
+	wood = changes.wood
 	_build_astar()
 
 
@@ -378,8 +386,10 @@ func _draw() -> void:
 			if not floor_cells.has(c) and _can_break(c):
 				draw_rect(Rect2(Vector2(c * TILE) + Vector2(1, 1), Vector2(TILE - 2, TILE - 2)), GOLD, false, 2)
 	if _can_build(_build_hover):
-		# Base: outline the tile a click would build on or clear.
-		draw_rect(Rect2(Vector2(_build_hover * TILE) + Vector2(1, 1), Vector2(TILE - 2, TILE - 2)), GOLD, false, 2)
+		# Base: outline the tile a click would build on or clear, in red when
+		# you don't have the wood for a wall there.
+		var short := floor_cells.has(_build_hover) and wood < Base.WALL_COST
+		draw_rect(Rect2(Vector2(_build_hover * TILE) + Vector2(1, 1), Vector2(TILE - 2, TILE - 2)), Color(0.9, 0.3, 0.25) if short else GOLD, false, 2)
 
 
 ## Trees, water and the campfire in the base: their art if it exists, else
@@ -484,7 +494,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_end_player_turn()
 
 
-## Move, or attack if an enemy is in the way. Returns false if nothing happened.
+## Move, or attack if an enemy is in the way, or chop down a tree in the base.
+## Returns false if nothing happened.
 func _player_step(dir: Vector2i) -> bool:
 	var target := player.grid_pos + dir
 	if target == shop:
@@ -493,6 +504,9 @@ func _player_step(dir: Vector2i) -> bool:
 	var enemy = _enemy_at(target)
 	if enemy:
 		_player_attack(enemy, dir)
+		return true
+	if base_props.get(target, "") == "tree":
+		_chop(target, dir)
 		return true
 	if not floor_cells.has(target):
 		return false
@@ -878,9 +892,9 @@ func _can_break(cell: Vector2i) -> bool:
 	return true
 
 
-## A few bits of stone that burst out of a smashed wall.
-func _rubble(cell: Vector2i) -> void:
-	var col := Color(0.55, 0.5, 0.45)
+## A few bits of stone that burst out of a smashed wall (or wood chips, in
+## another colour).
+func _rubble(cell: Vector2i, col := Color(0.55, 0.5, 0.45)) -> void:
 	for i in 8:
 		var bit := ColorRect.new()
 		bit.color = col.darkened(randf() * 0.4)
@@ -900,33 +914,56 @@ func _mouse_cell() -> Vector2i:
 	return Vector2i((get_global_mouse_position() / TILE).floor())
 
 
-## In the base a click builds a wall on open ground, or takes a wall down.
-## It's free: no turn passes. Returns true if the map changed.
+## In the base a click builds a wall on open ground for Base.WALL_COST wood,
+## or takes a wall down and gives that wood back. No turn passes. Returns true
+## if the map changed.
 func _build_at(cell: Vector2i) -> bool:
 	if state != State.PLAYER_TURN or breaking or not _can_build(cell):
 		return false
 	if floor_cells.has(cell):
+		if wood < Base.WALL_COST:
+			_log("You need %d wood to build a wall. Walk into a tree to chop it down." % Base.WALL_COST)
+			_refresh_hud()
+			return false
+		wood -= Base.WALL_COST
 		floor_cells.erase(cell)
 	else:
+		wood += Base.WALL_COST
 		floor_cells[cell] = true
 		_rubble(cell)
 	astar.set_point_solid(cell, not floor_cells.has(cell))
 	_save_base()
+	_refresh_hud()
 	queue_redraw()
 	return true
 
 
 ## Walls go on open ground, but not where you stand, on the portal or on the
-## spot where you appear. Any wall can come down. Trees, water and the
-## campfire stay put.
+## spot where you appear. Any wall can come down. Trees (until you chop them
+## down), water and the campfire stay put.
 func _can_build(cell: Vector2i) -> bool:
 	if not in_base() or Base.tile(cell) in ["", "@", "O"] or base_props.has(cell):
 		return false
 	return cell != player.grid_pos
 
 
+## Walking into a tree in the base chops it down: it leaves open ground and
+## gives you Base.WOOD_PER_TREE wood. Uses a turn, like an attack.
+func _chop(cell: Vector2i, dir: Vector2i) -> void:
+	base_props.erase(cell)
+	floor_cells[cell] = true
+	astar.set_point_solid(cell, false)
+	wood += Base.WOOD_PER_TREE
+	player.bump(dir)
+	player.popup("+%d wood" % Base.WOOD_PER_TREE, WOOD_COLOR)
+	_rubble(cell, Color(0.5, 0.33, 0.18))
+	_log("You chop down the tree. +%d wood." % Base.WOOD_PER_TREE)
+	_save_base()
+	queue_redraw()
+
+
 func _save_base() -> void:
-	if not Base.save_changes(base_save_path, floor_cells):
+	if not Base.save_changes(base_save_path, floor_cells, base_props, wood):
 		_log("Couldn't save your base.")
 
 
@@ -1245,7 +1282,7 @@ func _refresh_hud() -> void:
 		for c in Cards.POOL:
 			if c.id == id and c.type == "passive":
 				passive_txt.append("%s x%d" % [c.name, player.card_stacks[id]])
-	var where := "Your base" if in_base() else "Depth %d   Turn %d" % [depth, turn]
+	var where := "Your base   Wood %d" % wood if in_base() else "Depth %d   Turn %d" % [depth, turn]
 	var foes := ""
 	if not in_base():
 		var boss = _boss()

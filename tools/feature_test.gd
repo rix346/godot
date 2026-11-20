@@ -1,11 +1,12 @@
 extends SceneTree
 # Headless check of every card and skill on a deep floor: applies all cards,
 # fires each skill, and plays turns until death or a turn cap. Before that it
-# checks the base (its layout, building, saving and the portal), the rules for
-# weapon offers, the stairs heal, coins, the shop and its reroll, Night Vision,
-# Break Wall, the enemy cap, mix and elites, boss floors and each of the Cow's
-# attacks, double melee damage, natural healing and the Cow's arrow
-# resistance, and prints FAIL for anything that's broken.
+# checks the base (its layout, chopping trees for wood, building, saving and
+# the portal), the rules for weapon offers, the stairs heal, coins, the shop
+# and its reroll, Night Vision, Break Wall, the enemy cap, mix and elites,
+# boss floors and each of the Cow's attacks, double melee damage, natural
+# healing and the Cow's arrow resistance, and prints FAIL for anything that's
+# broken.
 const Base := preload("res://scripts/base.gd")
 const Cards := preload("res://scripts/cards.gd")
 const Enemy := preload("res://scripts/enemy.gd")
@@ -19,6 +20,14 @@ func check(ok: bool, what: String) -> void:
 	if not ok:
 		failures += 1
 		print("FAIL: ", what)
+
+
+## Sends one key press to the game, as if the player pressed it.
+func press(main, key: int) -> void:
+	var ev := InputEventKey.new()
+	ev.pressed = true
+	ev.keycode = key
+	main._unhandled_input(ev)
 
 
 func card(id: String) -> Dictionary:
@@ -97,20 +106,46 @@ func check_base_rules(main) -> void:
 	check(main.stairs == portal, "the portal is the way down")
 	check(main.enemies.is_empty() and main.visible_cells.size() == main.W * main.H, "no enemies and no fog in the base")
 	check(main.astar.get_id_path(start, portal).size() > 1, "you can walk from the start to the portal")
+	check(main.wood == 0, "a new base starts with no wood")
 	main._refresh_hud()
-	check(main._hud.text.begins_with("Your base"), "the HUD says you're in your base")
+	check(main._hud.text.begins_with("Your base   Wood 0"), "the HUD says you're in your base and shows your wood")
 
-	# A click builds a wall on open ground or takes a wall down, and no turn passes.
-	var turn_before: int = main.turn
+	# No wood, no walls.
 	var spot := Vector2i(-1, -1)
 	for d in [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]:
 		if spot.x < 0 and Base.tile(start + d) == ".":
 			spot = start + d
+	check(not main._build_at(spot) and main.floor_cells.has(spot), "can't build a wall without wood")
+
+	# Walking into a tree chops it down: open ground, wood, and a turn passes.
+	var tree := Vector2i(-1, -1)
+	var stand := Vector2i(-1, -1)
+	for c in main.base_props:
+		for d in main.DIRS:
+			if tree.x < 0 and main.base_props[c] == "tree" and Base.tile(c + d) == ".":
+				tree = c
+				stand = c + d
+	player.place(stand)
+	var turn_before: int = main.turn
+	press(main, main.DIRECTION_KEYS.find_key(tree - stand))
+	check(not main.base_props.has(tree) and main.floor_cells.has(tree) and not main.astar.is_point_solid(tree), "walking into a tree chops it down")
+	check(main.wood == Base.WOOD_PER_TREE, "a tree gives %d wood (got %d)" % [Base.WOOD_PER_TREE, main.wood])
+	check(player.grid_pos == stand and main.turn == turn_before + 1, "chopping uses a turn and you stay put")
+	check(main._hud.text.begins_with("Your base   Wood %d" % Base.WOOD_PER_TREE), "the HUD shows the new wood")
+
+	# A click builds a wall on open ground for wood, or takes a wall down and
+	# gives the wood back, and no turn passes.
+	turn_before = main.turn
+	player.place(start)
 	var wall: Vector2i = first["#"]
 	check(main._build_at(spot) and not main.floor_cells.has(spot) and main.astar.is_point_solid(spot), "a click builds a wall")
+	check(main.wood == Base.WOOD_PER_TREE - Base.WALL_COST, "a wall costs %d wood" % Base.WALL_COST)
 	check(main._build_at(wall) and main.floor_cells.has(wall) and not main.astar.is_point_solid(wall), "a click takes a wall down")
+	check(main.wood == Base.WOOD_PER_TREE, "taking a wall down gives the wood back")
+	check(main._build_at(tree) and not main.floor_cells.has(tree), "a wall can go where a tree was")
 	check(main.turn == turn_before, "building doesn't use a turn")
-	for c in [start, portal, first["T"], first["~"], first["f"], Vector2i(-1, 3), Vector2i(main.W, 3)]:
+	var standing_tree: Vector2i = main.base_props.keys().filter(func(c): return main.base_props[c] == "tree")[0]
+	for c in [start, portal, standing_tree, first["~"], first["f"], Vector2i(-1, 3), Vector2i(main.W, 3)]:
 		check(not main._build_at(c), "can't build on %s (%s)" % [c, Base.tile(c)])
 	player.place(start + Vector2i(0, 1))
 	check(not main._build_at(player.grid_pos), "can't build where you stand")
@@ -118,20 +153,29 @@ func check_base_rules(main) -> void:
 
 	# The changes are saved, and come back the next time you're in the base.
 	check(FileAccess.file_exists(main.base_save_path), "the base was saved")
+	var wood_before: int = main.wood
 	main._new_floor()
-	check(not main.floor_cells.has(spot) and main.floor_cells.has(wall), "the saved base loads back")
+	check(not main.floor_cells.has(spot) and main.floor_cells.has(wall), "the saved walls load back")
+	check(not main.base_props.has(tree) and not main.floor_cells.has(tree), "the chopped tree and the wall in its place load back")
+	check(main.wood == wood_before, "the wood loads back (%d, saved %d)" % [main.wood, wood_before])
+	main._build_at(tree)
 	main._build_at(spot)
 	main._build_at(wall)
 	var saved: Dictionary = Base.load_changes(main.base_save_path)
-	check(saved.placed.is_empty() and saved.removed.is_empty(), "undoing the changes saves an untouched base")
+	check(saved.placed.is_empty() and saved.removed.is_empty(), "undoing the walls saves no wall changes")
+	check(saved.chopped == [tree] and saved.wood == Base.WOOD_PER_TREE, "the chopped tree and its wood stay saved")
+
+	# A save from before trees could be chopped still loads, with no wood.
+	var f := FileAccess.open(main.base_save_path, FileAccess.WRITE)
+	f.store_string(JSON.stringify({version = 1, placed = [[spot.x, spot.y]], removed = []}))
+	f.close()
+	main._new_floor()
+	check(not main.floor_cells.has(spot) and main.wood == 0 and main.base_props.has(tree), "an older base save still loads")
 	DirAccess.remove_absolute(main.base_save_path)
 
 	# Walking into the portal starts the run on depth 1, turn 1.
 	player.place(portal + Vector2i.LEFT)
-	var ev := InputEventKey.new()
-	ev.pressed = true
-	ev.keycode = KEY_RIGHT
-	main._unhandled_input(ev)
+	press(main, KEY_RIGHT)
 	check(main.depth == 1 and not main.in_base(), "the portal leads to depth 1")
 	check(main.turn == 1, "the dungeon starts on turn 1 (turn %d)" % main.turn)
 	check(main.enemies.size() > 0 and main.base_props.is_empty(), "depth 1 is a normal floor")
