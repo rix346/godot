@@ -2,11 +2,13 @@ extends RefCounted
 ## Your base: where every run starts. No enemies and no fog, and you can build.
 ## LAYOUT is the starting map (drawn by Rihards), one character per tile:
 ##   .  floor              #  wall (players can take it down)
-##   T  tree               ~  water              f  campfire
+##   T  tree (walk into it to chop it down for wood)
+##   ~  water              f  campfire
 ##   O  the portal down to depth 1
 ##   @  where you appear
-## Players add and remove walls with the mouse. Only those changes are saved,
-## so LAYOUT can still be edited later without wiping anyone's base.
+## Players chop trees, and add and remove walls with the mouse. Only those
+## changes (and the wood) are saved, so LAYOUT can still be edited later
+## without wiping anyone's base.
 
 const LAYOUT: Array[String] = [
 	"TTTT.....TT.....TTT......TTTTT",
@@ -32,6 +34,8 @@ const LAYOUT: Array[String] = [
 const PROPS := {"T": "tree", "~": "water", "f": "campfire"}
 ## Every itch.io browser game shares one storage, so the name has to be unique.
 const SAVE_PATH := "user://dungeons_to_the_bottom_base.json"
+const WOOD_PER_TREE := 2  # wood you get for chopping down one tree
+const WALL_COST := 1  # wood a wall costs to build; taking a wall down gives it back
 
 
 ## The LAYOUT character at `cell`, or "" outside the map.
@@ -41,40 +45,50 @@ static func tile(cell: Vector2i) -> String:
 	return LAYOUT[cell.y][cell.x]
 
 
-## The walls the player built ("placed") and the LAYOUT walls they took down
-## ("removed"), as saved at `path`. Both lists are empty when there's no save.
+## What the player changed, as saved at `path`: the trees they chopped down
+## ("chopped"), the walls they built ("placed", on open ground or where a tree
+## was), the LAYOUT walls they took down ("removed"), and their wood. All
+## empty, and 0 wood, when there's no save yet.
 static func load_changes(path: String) -> Dictionary:
-	var changes := {placed = [], removed = []}
+	var changes := {chopped = [], placed = [], removed = [], wood = 0}
 	if not FileAccess.file_exists(path):
 		return changes
 	var data = JSON.parse_string(FileAccess.get_file_as_string(path))
 	if typeof(data) != TYPE_DICTIONARY:
 		return changes
-	for key in changes:
+	for key in ["chopped", "placed", "removed"]:
 		var cells = data.get(key, [])
 		if typeof(cells) != TYPE_ARRAY:
 			continue
 		for v in cells:
 			if typeof(v) == TYPE_ARRAY and v.size() == 2:
 				changes[key].append(Vector2i(int(v[0]), int(v[1])))
+	var wood = data.get("wood", 0)
+	if typeof(wood) in [TYPE_INT, TYPE_FLOAT]:
+		changes.wood = maxi(0, int(wood))
 	return changes
 
 
-## Saves how `floor_cells` differs from LAYOUT: walls built on open ground,
-## and LAYOUT walls taken down. Returns false if the file can't be written.
-static func save_changes(path: String, floor_cells: Dictionary) -> bool:
+## Saves how the base differs from LAYOUT (see load_changes), plus the wood.
+## `props` holds the trees, water and campfire still standing. Returns false
+## if the file can't be written.
+static func save_changes(path: String, floor_cells: Dictionary, props: Dictionary, wood: int) -> bool:
+	var chopped := []
 	var placed := []
 	var removed := []
 	for y in LAYOUT.size():
 		for x in LAYOUT[y].length():
 			var c := Vector2i(x, y)
-			if LAYOUT[y][x] == "." and not floor_cells.has(c):
+			var ch := LAYOUT[y][x]
+			if ch == "T" and not props.has(c):
+				chopped.append([x, y])
+			if ch in [".", "T"] and not floor_cells.has(c) and not props.has(c):
 				placed.append([x, y])
-			elif LAYOUT[y][x] == "#" and floor_cells.has(c):
+			elif ch == "#" and floor_cells.has(c):
 				removed.append([x, y])
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f == null:
 		return false
-	f.store_string(JSON.stringify({version = 1, placed = placed, removed = removed}))
+	f.store_string(JSON.stringify({version = 1, chopped = chopped, placed = placed, removed = removed, wood = wood}))
 	f.close()
 	return true

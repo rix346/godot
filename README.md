@@ -38,7 +38,7 @@ To try a change before it's merged, go to **Current Branch → Pull Requests**, 
 
 ![Gameplay](docs/game.png)
 
-- **Your base.** Every run starts in your base. There are no enemies there, and you can build walls. Walk into the portal to go down to depth 1. See [Your base](#your-base).
+- **Your base.** Every run starts in your base. There are no enemies there. Chop down trees for wood and build walls with it. Walk into the portal to go down to depth 1. See [Your base](#your-base).
 - **It's turn-based.** Nothing moves until you do. After each of your actions, every enemy takes its turn.
 - **Attack by walking into an enemy.** With a melee weapon or your fists, that hits for **2× your attack** (the ATK in the bar at the bottom). Holding a bow it's a plain 1× hit, since the bow does its damage by shooting.
 - **Healing.** You heal **1 HP every 10 turns** on your own, and 30% of your max HP every time you take the stairs. Cards like Second Wind, Vampiric Fangs, Bloodlust and Mend heal more.
@@ -49,7 +49,7 @@ To try a change before it's merged, go to **Current Branch → Pull Requests**, 
 - **Level up.** Kills give XP. Each level-up pauses the game and offers **3 cards**, and you pick one. Each level needs a bit more XP than the last.
 - **Dying.** The run is over and your coins are lost. Press **R** to go back to your base and start a new run, or **Esc** to go back to the menu.
 
-The bar at the bottom shows depth, turn, HP, attack, level, XP, enemies left, your weapon, skills, passives and the last few combat messages. Your coins are in its top-right corner.
+The bar at the bottom shows depth, turn, HP, attack, level, XP, enemies left, your weapon, skills, passives and the last few combat messages. In your base it shows your wood instead of the depth and turn. Your coins are in its top-right corner.
 
 You start with **20 HP** and **3 attack**.
 
@@ -63,7 +63,8 @@ You start with **20 HP** and **3 attack**.
 | Space or `.` | Wait one turn |
 | 1, 2, 3 | Use skill 1-3. Break Wall then asks for a direction (arrows / WASD) |
 | Left mouse click on an enemy | Choose the target for a ranged weapon (doesn't use a turn) |
-| Left mouse click in your base | Build a wall on open ground, or take a wall down (doesn't use a turn) |
+| Walk into a tree in your base | Chop it down for 2 wood |
+| Left mouse click in your base | Build a wall on open ground for 1 wood, or take a wall down and get the wood back (doesn't use a turn) |
 | 1, 2, 3 or click | Pick a card on the level-up screen, or buy one in the shop |
 | Walk into the shopkeeper | Open the shop (doesn't use a turn) |
 | R | Go back to your base after dying, or reroll the shop's cards (5 coins) |
@@ -77,8 +78,9 @@ You start with **20 HP** and **3 attack**.
 
 Every run starts in your base, and when you die, **R** brings you back there. It's a calm place: no enemies and no fog.
 
-- **Build.** Click open ground to put a wall there, and click a wall to take it down. Building is free and doesn't use a turn. The gold outline shows where a click will build. You can't build on trees, water, the campfire, the portal, where you stand, or the spot where you appear.
-- **It's saved.** Your walls stay after you die and after you quit the game. In the browser version on itch.io they're saved in your browser. Private windows and clearing your browsing data lose them.
+- **Chop trees.** Walk into a tree to chop it down. You get **2 wood**, and the tree leaves open ground. Chopping uses a turn, like an attack. Trees don't grow back. The bar at the bottom shows your wood.
+- **Build.** Click open ground to put a wall there for **1 wood**, and click a wall to take it down and get the wood back. Building doesn't use a turn. The gold outline shows where a click will build, and it turns red when you don't have the wood. You can't build on trees, water, the campfire, the portal, where you stand, or the spot where you appear.
+- **It's saved.** Your walls, the trees you've chopped down and your wood stay after you die and after you quit the game. In the browser version on itch.io they're saved in your browser. Private windows and clearing your browsing data lose them.
 - **Go down.** Walk into the portal between the four stones to start the run on depth 1.
 
 More is planned for the base later, like people to meet and crafting.
@@ -268,8 +270,8 @@ Written in GDScript. The UI is built in code, so there are only two scenes.
 | File | What's in it |
 |---|---|
 | `scenes/title.tscn`, `scripts/title.gd` | Title screen (Play / Credits / Exit). Credits text is `CREDITS` |
-| `scenes/main.tscn`, `scripts/main.gd` | The base and building in it, dungeon generation (rooms, and caves on boss floors), fog of war, turn loop, combat, weapons, skills, coins, shop, HUD |
-| `scripts/base.gd` | The base's starting map (`LAYOUT`, one character per tile) and saving the walls players build |
+| `scenes/main.tscn`, `scripts/main.gd` | The base (chopping trees, building walls), dungeon generation (rooms, and caves on boss floors), fog of war, turn loop, combat, weapons, skills, coins, shop, HUD |
+| `scripts/base.gd` | The base's starting map (`LAYOUT`, one character per tile), the wood a tree gives (`WOOD_PER_TREE`) and a wall costs (`WALL_COST`), and saving what players change |
 | `scripts/unit.gd` | Shared grid unit: HP, drawing, damage, movement |
 | `scripts/player.gd` | XP, levels and the stats cards change |
 | `scripts/enemy.gd` | Enemy types (`KINDS`), depth scaling, the tougher mix deeper down (`random_kind`) and elites |
@@ -278,9 +280,9 @@ Written in GDScript. The UI is built in code, so there are only two scenes.
 | `scripts/level_up_ui.gd` | The 3-card pick screen |
 | `scripts/shop_ui.gd` | The shop screen. Prices are in `PRICES`, the reroll cost in `REROLL_PRICE` |
 | `tools/sim.gd` | Headless bot that plays random turns (smoke test) |
-| `tools/feature_test.gd` | Checks the base (layout, building, saving, the portal), the coin, shop, Night Vision, Break Wall, enemy cap, elite and boss rules (each of the Cow's attacks), double melee damage, natural healing and arrows against the Cow, then applies every card and fires every skill on a depth-3 floor |
+| `tools/feature_test.gd` | Checks the base (layout, chopping trees, building, saving, the portal), the coin, shop, Night Vision, Break Wall, enemy cap, elite and boss rules (each of the Cow's attacks), double melee damage, natural healing and arrows against the Cow, then applies every card and fires every skill on a depth-3 floor |
 
-**Changing the base:** edit `LAYOUT` in `scripts/base.gd`. The key is at the top of the file. Only the walls players change are saved, so edits to `LAYOUT` reach everyone's base. To start your own base over, delete `dungeons_to_the_bottom_base.json` from Godot's user data folder (in Godot: **Project → Open User Data Folder**).
+**Changing the base:** edit `LAYOUT` in `scripts/base.gd`. The key is at the top of the file. Only what players change is saved (the trees they chopped down, the walls they built or took down, and their wood), so edits to `LAYOUT` reach everyone's base. To start your own base over, delete `dungeons_to_the_bottom_base.json` from Godot's user data folder (in Godot: **Project → Open User Data Folder**).
 **Adding an enemy:** add a line to `KINDS` in `scripts/enemy.gd`. The optional keys are `actions`, `range`, `slow` and `poison`.
 **Adding a boss:** make a script that extends `scripts/enemy.gd`, like `scripts/cow.gd`, with a `boss_turn(game)` function. `main.gd` calls it instead of the normal enemy turn. Tiles you put in its `danger` list are marked on the map (`danger_color`). Spawn it in `_spawn_boss()` in `main.gd`.
 **Adding a card:** add an entry to `POOL` in `scripts/cards.gd`. Passives go in `apply()`, skills in `_use_skill()` in `main.gd`, and weapons use keys like `atk`, `crit`, `reach`, `ranged`.
