@@ -4,7 +4,7 @@ A turn-based dungeon crawler made in Godot. Every run starts in your base, a cal
 
 ![Title screen](docs/title.png)
 
-**Contents:** [Running the game](#running-the-game) · [How to play](#how-to-play) · [Controls](#controls) · [Your base](#your-base) · [Enemies](#enemies) · [Boss floors](#boss-floors) · [Big floors](#big-floors) · [Coins and the shop](#coins-and-the-shop) · [Wishing well](#wishing-well) · [Cards](#cards) · [Weapons](#weapons) · [Skills](#skills) · [Passives](#passives) · [Adding art](#adding-art) · [For developers](#for-developers) · [Credits](#credits)
+**Contents:** [Running the game](#running-the-game) · [How to play](#how-to-play) · [Controls](#controls) · [Your base](#your-base) · [Enemies](#enemies) · [Boss floors](#boss-floors) · [Big floors](#big-floors) · [Coins and the shop](#coins-and-the-shop) · [Wishing well](#wishing-well) · [Light hook](#light-hook) · [Cards](#cards) · [Weapons](#weapons) · [Skills](#skills) · [Passives](#passives) · [Adding art](#adding-art) · [For developers](#for-developers) · [Credits](#credits)
 
 ---
 
@@ -47,6 +47,7 @@ To try a change before it's merged, go to **Current Branch → Pull Requests**, 
 - **Big floors.** From depth 2, some floors are 4 screens in size, with twice the enemies. The map follows you around, and a minimap shows where you've been. See [Big floors](#big-floors).
 - **Coins and the shop.** Enemies sometimes drop coins. Spend them at the shopkeeper, who shows up on some floors. See [Coins and the shop](#coins-and-the-shop).
 - **Wishing well.** From depth 2, a wishing well sometimes shows up when you clear a floor. A wish makes the rest of the run harder, and kills give more XP. See [Wishing well](#wishing-well).
+- **Light hook.** From depth 2, a light hook sometimes shows up when you clear a floor, and always on a boss floor. Step on it to go up to your base in the middle of a run, then take the portal back down. See [Light hook](#light-hook).
 - **Fog of war.** You see 7 tiles around you, and walls block your view. Places you've already seen stay on the map, darker.
 - **Level up.** Kills give XP. Each level-up pauses the game and offers **3 cards**, and you pick one. Each level needs a bit more XP than the last.
 - **Dying.** The run is over and your coins are lost. Press **R** to go back to your base and start a new run, or **Esc** to go back to the menu.
@@ -70,6 +71,7 @@ You start with **20 HP** and **3 attack**.
 | 1, 2, 3 or click | Pick a card on the level-up screen, buy one in the shop, or make a wish at the well |
 | Walk into the shopkeeper | Open the shop (doesn't use a turn) |
 | Walk into the wishing well | See the wishes (doesn't use a turn) |
+| Step on the light hook | Go up to your base in the middle of a run |
 | R | Go back to your base after dying, or reroll the shop's cards (5 coins) |
 | Esc | Leave the shop or the well, cancel Break Wall, or go back to the title screen |
 
@@ -79,14 +81,14 @@ You start with **20 HP** and **3 attack**.
 
 ![Your base](docs/base.png)
 
-Every run starts in your base, and when you die, **R** brings you back there. It's a calm place: no enemies and no fog.
+Every run starts in your base, and when you die, **R** brings you back there. A [light hook](#light-hook) can also take you there in the middle of a run. It's a calm place: no enemies and no fog.
 
 - **Chop trees.** Walk into a tree to chop it down. You get **2 wood**, and the tree leaves open ground. Chopping uses a turn, like an attack. Trees don't grow back. The bar at the bottom shows your wood.
 - **Build.** Click open ground to put a wall there for **1 wood**, and click a wall to take it down and get the wood back. Building doesn't use a turn. The gold outline shows where a click will build, and it turns red when you don't have the wood. You can't build on trees, water, the campfire, the portal, where you stand, or the spot where you appear.
 - **It's saved.** Your walls, the trees you've chopped down and your wood stay after you die and after you quit the game. In the browser version on itch.io they're saved in your browser. Private windows and clearing your browsing data lose them.
-- **Go down.** Walk into the portal between the four stones to start the run on depth 1.
+- **Go down.** Walk into the portal between the four stones to start the run on depth 1, or to go back to your run after a light hook.
 
-More is planned for the base later, like people to meet and crafting.
+More is planned for the base later, like people to meet, crafting and upgrades.
 
 ---
 
@@ -127,7 +129,7 @@ Enemies chase you once you're within 7 tiles of them, or further with the [Loud 
 
 ## Boss floors
 
-Every 5th depth (5, 10, 15, ...) is a **boss floor**: one big cave instead of rooms, drawn with the depth 1 tiles, with a boss and no other enemies. You start in the middle of the cave and the boss is somewhere further in. While the boss is the only enemy on a floor, the bar at the bottom shows its HP instead of the enemy count. Kill it and the stairs appear as usual.
+Every 5th depth (5, 10, 15, ...) is a **boss floor**: one big cave instead of rooms, drawn with the depth 1 tiles, with a boss and no other enemies. You start in the middle of the cave and the boss is somewhere further in. While the boss is the only enemy on a floor, the bar at the bottom shows its HP instead of the enemy count. Kill it and the stairs appear as usual, along with a [light hook](#light-hook) up to your base.
 
 The [Boss Madness](#wishing-well) wish makes boss caves 4 screens big, with more bosses, and brings bosses to normal floors too.
 
@@ -164,7 +166,7 @@ From depth 2, every floor has a 30% chance to be a **big floor**: 60 × 36 tiles
 - **The map follows you.** You stay in the middle of the screen and the map scrolls as you move. At the edge of the map it stops scrolling.
 - **More rooms and more enemies.** A big floor has about 4 times the rooms, and **twice the enemies**: 3 + 2 × depth, times 2, up to 40. More enemies also means more XP and coins.
 - **Minimap.** The box in the top-right corner shows the floor you've explored and where you are (white). It fades while you walk behind it.
-- **Finding the way out.** When you clear a big floor, the stairs (yellow) are marked on the minimap right away, and so are the shopkeeper (purple) and the wishing well (blue) if they show up. You don't have to search the whole floor for them.
+- **Finding the way out.** When you clear a big floor, the stairs (yellow) are marked on the minimap right away, and so are the shopkeeper (purple), the wishing well (blue) and the light hook (green) if they show up. You don't have to search the whole floor for them.
 
 ---
 
@@ -200,6 +202,18 @@ A wish makes the **rest of the run harder**, from the next floor on. In return, 
 | **Challenge** | Every enemy gets **+25% HP and attack** (2 wishes: +50%, and so on) |
 | **Boss Madness** | Bosses can show up on **normal floors**, along with the other enemies: a 25% chance per wish, so with 4 wishes there's one on every floor. **Boss caves are big** (4 screens, like [big floors](#big-floors)) and get **1 more boss** per wish. Bosses get **+25% HP and attack**, on top of Challenge |
 | **Loud Steps** | Enemies notice you from **7 tiles further away**: 14 tiles after one wish (twice as far), 21 after two, and so on. Bosses too |
+
+---
+
+## Light hook
+
+![A cleared floor with a light hook next to you, the stairs and the shopkeeper](docs/light-hook.png)
+
+From depth 2, when you clear a floor a **light hook** sometimes appears: 20% of the time, and **always when you clear a boss floor**. It hangs in an open spot, away from the stairs, the shopkeeper and the well.
+
+**Step on it** to be pulled up to [your base](#your-base) in the middle of a run. You keep everything: your HP, level, cards, weapon, skills, coins and wishes. Coins still lying on the floor are left behind, like with the stairs. Poison wears off at home.
+
+In the base you can chop trees and build as usual, and the bar at the bottom shows where the portal goes. When you're ready, **walk into the portal** to go back down to the **next depth**, as if you'd taken the stairs. You heal 30% of your max HP on the way down, like on the stairs.
 
 ---
 
@@ -290,6 +304,7 @@ All art lives in [`art/`](art/README.md) and is picked up **by file name**. Drop
 - Cards: `card_common.png` ... `card_legendary.png` (64×100). Weapon icons: `weapon_<id>.png` (32×32).
 - UI: `hud.png` (bottom bar) and `menu_panel.png` (title screen scroll).
 - Coins and the shop: `coin.png` (32×32, drawn at half size on the floor) and `shopkeeper.png` (32×32).
+- Light hook: `light_hook.png` (32×32, drawn on top of the floor). Until it exists, it's a glowing rope with a hook.
 - Wishing well: `well.png` (32×32, drawn darker once it's dry). Icons on the wish cards: `wish_challenge.png`, `wish_boss_madness.png`, `wish_loud_steps.png` (32×32). Until they exist, the well is a ring of stones around blue water, and the wish cards have no icon.
 - Bosses: `cow.png` (32×32). Until it exists, the Cow is a white square with a `C`.
 - Your base: `base_floor.png`, `base_wall.png`, `tree.png`, `water.png`, `campfire.png` and `portal.png` (32×32). Until they exist, the base is drawn with plain shapes.
@@ -305,7 +320,7 @@ Written in GDScript. The UI is built in code, so there are only two scenes.
 | File | What's in it |
 |---|---|
 | `scenes/title.tscn`, `scripts/title.gd` | Title screen (Play / Credits / Exit). Credits text is `CREDITS` |
-| `scenes/main.tscn`, `scripts/main.gd` | The base (chopping trees, building walls), dungeon generation (rooms, big floors, and caves on boss floors), the camera and minimap, fog of war, turn loop, combat, weapons, skills, coins, shop, wishing well and what the wishes change, HUD |
+| `scenes/main.tscn`, `scripts/main.gd` | The base (chopping trees, building walls), dungeon generation (rooms, big floors, and caves on boss floors), the camera and minimap, fog of war, turn loop, combat, weapons, skills, coins, shop, wishing well and what the wishes change, light hook, HUD |
 | `scripts/base.gd` | The base's starting map (`LAYOUT`, one character per tile), the wood a tree gives (`WOOD_PER_TREE`) and a wall costs (`WALL_COST`), and saving what players change |
 | `scripts/unit.gd` | Shared grid unit: HP, drawing, damage, movement |
 | `scripts/player.gd` | XP, levels and the stats cards change |
@@ -317,12 +332,13 @@ Written in GDScript. The UI is built in code, so there are only two scenes.
 | `scripts/wishes.gd` | The wishes at the wishing well (`POOL`) and their numbers: the XP per wish (`REWARD`), the extra HP and attack (`STRENGTH`) and the boss chance on normal floors (`BOSS_CHANCE`) |
 | `scripts/well_ui.gd` | The wishing well screen |
 | `tools/sim.gd` | Headless bot that plays random turns (smoke test) |
-| `tools/feature_test.gd` | Checks the base (layout, chopping trees, building, saving, the portal), the coin, shop, Night Vision, Break Wall, enemy cap, elite and boss rules (each of the Cow's attacks), double melee damage, natural healing, arrows against the Cow, big floors (size, rooms, enemies, the camera and minimap) and the wishing well with each of its wishes, then applies every card and fires every skill on a depth-3 floor |
+| `tools/feature_test.gd` | Checks the base (layout, chopping trees, building, saving, the portal), the coin, shop, Night Vision, Break Wall, enemy cap, elite and boss rules (each of the Cow's attacks), double melee damage, natural healing, arrows against the Cow, big floors (size, rooms, enemies, the camera and minimap), the wishing well with each of its wishes and the light hook up to your base and back, then applies every card and fires every skill on a depth-3 floor |
 
 **Changing the base:** edit `LAYOUT` in `scripts/base.gd`. The key is at the top of the file. Only what players change is saved (the trees they chopped down, the walls they built or took down, and their wood), so edits to `LAYOUT` reach everyone's base. To start your own base over, delete `dungeons_to_the_bottom_base.json` from Godot's user data folder (in Godot: **Project → Open User Data Folder**).
 **Adding an enemy:** add a line to `KINDS` in `scripts/enemy.gd`. The optional keys are `actions`, `range`, `slow` and `poison`.
 **Big floors:** `BIG_FLOOR_SIZE`, `BIG_FLOOR_CHANCE`, `BIG_FLOOR_FIRST_DEPTH` and `BIG_FLOOR_ENEMIES` at the top of `scripts/main.gd` set how big they are, how often they come, from which depth, and how many more enemies they have.
 **Wishing well:** `WELL_CHANCE` and `WELL_FIRST_DEPTH` at the top of `scripts/main.gd` set how often a well appears and from which depth. What each wish does is in `_empower()`, `aggro_range()`, `_madness_bosses()` and `_new_floor()` in `scripts/main.gd`, and the numbers are in `scripts/wishes.gd`.
+**Light hook:** `HOOK_CHANCE` and `HOOK_FIRST_DEPTH` at the top of `scripts/main.gd` set how often a light hook appears and from which depth (a cleared boss floor always gets one). `_hook_up()` takes you up to the base, and `return_depth` is the depth the portal takes you back down to.
 **Adding a boss:** make a script that extends `scripts/enemy.gd`, like `scripts/cow.gd`, with a `boss_turn(game)` function. `main.gd` calls it instead of the normal enemy turn. Tiles you put in its `danger` list are marked on the map (`danger_color`). Spawn it in `_spawn_boss()` in `main.gd`.
 **Adding a card:** add an entry to `POOL` in `scripts/cards.gd`. Passives go in `apply()`, skills in `_use_skill()` in `main.gd`, and weapons use keys like `atk`, `crit`, `reach`, `ranged`.
 
