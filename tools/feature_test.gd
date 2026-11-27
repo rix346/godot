@@ -5,13 +5,15 @@ extends SceneTree
 # the portal), the rules for weapon offers, the stairs heal, coins, the shop
 # and its reroll, Night Vision, Break Wall, the enemy cap, mix and elites,
 # boss floors and each of the Cow's attacks, double melee damage, natural
-# healing, the Cow's arrow resistance and big floors (their size, rooms,
-# enemies, camera and minimap), and prints FAIL for anything that's broken.
+# healing, the Cow's arrow resistance, big floors (their size, rooms,
+# enemies, camera and minimap) and the wishing well with each of its wishes,
+# and prints FAIL for anything that's broken.
 const Base := preload("res://scripts/base.gd")
 const Cards := preload("res://scripts/cards.gd")
 const Enemy := preload("res://scripts/enemy.gd")
 const Cow := preload("res://scripts/cow.gd")
 const ShopUI := preload("res://scripts/shop_ui.gd")
+const Wishes := preload("res://scripts/wishes.gd")
 
 var failures := 0
 
@@ -22,12 +24,30 @@ func check(ok: bool, what: String) -> void:
 		print("FAIL: ", what)
 
 
-## Sends one key press to the game, as if the player pressed it.
+## Sends one key press to the game (or to one of its screens), as if the
+## player pressed it.
 func press(main, key: int) -> void:
 	var ev := InputEventKey.new()
 	ev.pressed = true
 	ev.keycode = key
 	main._unhandled_input(ev)
+
+
+## Removes every enemy on the floor, without the kills counting.
+func clear_enemies(main) -> void:
+	for e in main.enemies.duplicate():
+		main.enemies.erase(e)
+		e.free()
+
+
+## The text of every label under `node`.
+func texts(node: Node) -> Array:
+	var found := []
+	for child in node.get_children():
+		if child is Label:
+			found.append(child.text)
+		found.append_array(texts(child))
+	return found
 
 
 func card(id: String) -> Dictionary:
@@ -40,6 +60,7 @@ func card(id: String) -> Dictionary:
 func _initialize():
 	var main = load("res://scenes/main.tscn").instantiate()
 	main.big_floor_chance = 0.0  # normal floors, unless a check asks for a big one
+	main.well_chance = 0.0  # and no wishing wells
 	root.add_child(main)
 	await process_frame
 	check_base_rules(main)
@@ -47,6 +68,7 @@ func _initialize():
 	check_depth_rules(main)
 	check_combat_rules(main)
 	await check_big_floor_rules(main)
+	await check_well_rules(main)
 
 	main.depth = 3
 	main._new_floor()
@@ -68,6 +90,9 @@ func _initialize():
 			continue
 		if main.state == main.State.SHOP:
 			main._shop_ui._close()
+			continue
+		if main.state == main.State.WELL:
+			main._well_ui._close()
 			continue
 		var ev = InputEventKey.new()
 		ev.pressed = true
@@ -635,3 +660,222 @@ func check_big_floor_rules(main) -> void:
 	main._new_floor()
 	check(main.enemies.size() == main.MAX_ENEMIES * main.BIG_FLOOR_ENEMIES, "a deep big floor has %d enemies (%d)" % [main.MAX_ENEMIES * main.BIG_FLOOR_ENEMIES, main.enemies.size()])
 	main.big_floor_chance = 0.0
+
+
+## From depth 2 a cleared floor can get a wishing well. Each well grants one
+## wish, and wishes stack for the rest of the run: Challenge (tougher enemies),
+## Boss Madness (bosses on normal floors, bigger boss caves with more bosses,
+## tougher bosses) and Loud Steps (enemies notice you from further away).
+## Every wish also adds 25% XP to kills.
+func check_well_rules(main) -> void:
+	var player = main.player
+	main.state = main.State.PLAYER_TURN
+	main.big_floor_chance = 0.0
+	main.wishes.clear()
+	player.night_vision = false
+	player.max_hp = 500
+	player.hp = 500
+
+	# Never on depth 1, even at a 100% chance.
+	main.well_chance = 1.0
+	main.depth = 1
+	main._new_floor()
+	clear_enemies(main)
+	main._floor_cleared()
+	check(main.well.x < 0, "no wishing well on depth 1")
+
+	# From depth 2 it stands in an open spot, apart from the stairs and the shopkeeper.
+	main.depth = 3
+	main._new_floor()
+	check(main.well.x < 0, "a floor has no well until it's cleared")
+	clear_enemies(main)
+	main.floors_without_shop = 2  # a shopkeeper too
+	main._floor_cleared()
+	var well: Vector2i = main.well
+	check(well.x >= 0 and main.astar.is_point_solid(well), "a cleared floor can get a wishing well (%s)" % well)
+	check(main.shop.x >= 0 and well != main.stairs and main._cheb(well, main.shop) > 1, "the well isn't on the stairs or next to the shopkeeper")
+	for x in range(well.x - 1, well.x + 2):
+		for y in range(well.y - 1, well.y + 2):
+			check(main.floor_cells.has(Vector2i(x, y)), "the well has floor all around")
+	await process_frame  # draw the well once
+
+	# Walking into it shows the wishes, without using a turn. Esc walks away,
+	# and the well waits for you.
+	player.place(well + Vector2i.LEFT)
+	var turn_before: int = main.turn
+	press(main, KEY_RIGHT)
+	check(main.state == main.State.WELL and main._well_ui.visible, "walking into the well opens it")
+	check(main.turn == turn_before and player.grid_pos == well + Vector2i.LEFT, "the well doesn't use a turn")
+	check(main._well_ui._row.get_child_count() == Wishes.POOL.size(), "the well shows every wish")
+	press(main._well_ui, KEY_ESCAPE)
+	check(main.state == main.State.PLAYER_TURN and not main._well_ui.visible and not main.well_used, "Esc walks away from the well")
+	press(main, KEY_RIGHT)
+	check(main.state == main.State.WELL, "you can come back to the well")
+	press(main._well_ui, KEY_1)
+	check(main._wish("challenge") == 1 and main.wish_count() == 1 and main.well_used, "key 1 makes the first wish")
+	check(main.state == main.State.PLAYER_TURN and not main._well_ui.visible, "making a wish closes the well")
+	press(main, KEY_RIGHT)
+	check(main.state == main.State.PLAYER_TURN and main.log_lines.back().begins_with("The well is dry"), "a well grants one wish")
+	check(main.turn == turn_before, "walking into a dry well doesn't use a turn")
+	await process_frame  # draw the dry well once
+	main._refresh_hud()
+	check(main._hud.text.contains("\nWishes: Challenge x1 (+25% XP)\n"), "the bar lists your wishes")
+	main._well_ui.open(player, main.wishes)
+	var shown := texts(main._well_ui)
+	check(shown.any(func(t): return t.ends_with("(made x1)")), "the next well shows the wishes you've made")
+	check(shown.any(func(t): return t.contains("So far you've made 1, for +25% XP.")), "the well says how much XP your wishes add")
+	main._well_ui._close()
+
+	# Challenge: +25% HP and attack per wish for every enemy on later floors.
+	main.wishes = {"challenge": 2}
+	main.well_chance = 0.0
+	main._new_floor()
+	var tough: bool = not main.enemies.is_empty()
+	for e in main.enemies:
+		var kind: Dictionary = Enemy.KINDS.filter(func(k): return k.name == e.display_name)[0]
+		tough = tough and e.max_hp == ceili((kind.hp + 4) * 1.5) and e.hp == e.max_hp and e.attack == ceili((kind.atk + 1) * 1.5)
+	check(tough, "2 Challenge wishes give every enemy +50% HP and attack")
+	main.wishes.clear()
+	main._new_floor()
+	check(main.enemies.all(func(e): return e.max_hp == Enemy.KINDS.filter(func(k): return k.name == e.display_name)[0].hp + 4), "no wishes, no tougher enemies")
+
+	# Boss Madness: the boss cave is big, with 1 more boss per wish, and
+	# bosses get +25% HP and attack per wish.
+	main.wishes = {"boss_madness": 2}
+	main.depth = 4
+	main._descend()
+	var cows: Array = main.enemies.filter(func(e): return e is Cow)
+	check(main.depth == 5 and main.is_big_floor() and main._minimap.visible, "with Boss Madness the boss cave is big")
+	check(main.rooms.is_empty() and player.grid_pos == Vector2i(main.map_w / 2, main.map_h / 2), "the big boss floor is still a cave, and you start in its middle")
+	check(cows.size() == 3 and main.enemies.size() == 3, "2 Boss Madness wishes bring 3 bosses (%d)" % cows.size())
+	var spots := {}
+	for e in cows:
+		spots[e.grid_pos] = true
+	check(spots.size() == cows.size() and cows.all(func(e): return main._dist(e.grid_pos, player.grid_pos) >= main.BOSS_SPAWN_DIST), "each boss starts on its own tile, away from you")
+	check(cows.all(func(e): return e.max_hp == ceili(60 * 1.5) and e.hp == e.max_hp and e.attack == ceili(4 * 1.5)), "2 Boss Madness wishes give bosses +50% HP and attack")
+	check(main.log_lines.back().begins_with("Boss floor! 3 bosses"), "the log says how many bosses there are (%s)" % main.log_lines.back())
+	main._refresh_hud()
+	check(main._hud.text.contains("Enemies 3"), "the bar counts the bosses")
+	main.wishes = {"challenge": 1, "boss_madness": 1}
+	var cow := Cow.new()
+	cow.setup_boss(5)
+	main._empower(cow)
+	check(cow.max_hp == ceili(60 * 1.5) and cow.attack == ceili(4 * 1.5), "Challenge and Boss Madness add up for bosses")
+	cow.free()
+
+	# On normal floors, each Boss Madness wish adds a 25% chance of a boss.
+	main.wishes = {"boss_madness": 4}
+	main.depth = 2
+	main._descend()
+	cows = main.enemies.filter(func(e): return e is Cow)
+	check(not main.is_boss_floor() and not main.is_big_floor() and not main.rooms.is_empty(), "Boss Madness doesn't change normal floors")
+	check(cows.size() == 1 and main.enemies.size() == 1 + 3 + 2 * 3, "4 Boss Madness wishes bring a boss to every normal floor (%d)" % cows.size())
+	check(main._dist(cows[0].grid_pos, player.grid_pos) >= main.BOSS_SPAWN_DIST and main.enemies.filter(func(e): return e.grid_pos == cows[0].grid_pos).size() == 1, "the boss starts away from you, on its own tile")
+	check(main.log_lines.back() == "Boss Madness: a Cow is on this floor too!", "the log warns you (%s)" % main.log_lines.back())
+	main._refresh_hud()
+	check(main._hud.text.contains("Enemies 10"), "the bar counts the boss with the other enemies")
+	main.wishes = {"boss_madness": 8}
+	main._new_floor()
+	check(main.enemies.filter(func(e): return e is Cow).size() == 2, "8 Boss Madness wishes bring 2 bosses")
+	main.wishes = {"boss_madness": 1}
+	var with_boss := 0
+	for i in 400:
+		var n: int = main._madness_bosses()
+		check(n <= 1, "1 Boss Madness wish brings at most 1 boss")
+		with_boss += n
+	check(with_boss > 60 and with_boss < 140, "1 Boss Madness wish brings a boss to about 1 floor in 4 (%d of 400)" % with_boss)
+	main.wishes.clear()
+	check(range(50).all(func(i): return main._madness_bosses() == 0), "no bosses on normal floors without Boss Madness")
+
+	# Bosses never start on the same tile, or on yours, even when the far end
+	# of a 12-tile corridor fills up (11 free tiles, so the 12th boss has no room).
+	clear_enemies(main)
+	main.floor_cells.clear()
+	for x in range(1, 13):
+		main.floor_cells[Vector2i(x, 1)] = true
+	main._build_astar()
+	player.place(Vector2i(1, 1))
+	for i in 12:
+		main._spawn_boss()
+	spots.clear()
+	for e in main.enemies:
+		spots[e.grid_pos] = true
+	check(main.enemies.size() == 11 and spots.size() == 11 and not spots.has(player.grid_pos), "bosses never share a tile, or start on yours")
+	clear_enemies(main)
+
+	# The well never stands right next to the shopkeeper: in a 5x5 room with
+	# the shopkeeper in the middle there's no room for it.
+	main.floor_cells.clear()
+	for x in range(1, 6):
+		for y in range(1, 6):
+			main.floor_cells[Vector2i(x, y)] = true
+	main._build_astar()
+	main.stairs = Vector2i(5, 5)
+	main.shop = Vector2i(3, 3)
+	main.well = Vector2i(-1, -1)
+	main.well_chance = 1.0
+	main._maybe_spawn_well()
+	check(main.well.x < 0, "the well never stands next to the shopkeeper (%s)" % main.well)
+	main.well_chance = 0.0
+
+	# Loud Steps: one wish doubles how far away enemies notice you, and every
+	# wish after that adds 7 more tiles. Bosses hear you too.
+	main.depth = 3
+	main._new_floor()
+	clear_enemies(main)
+	main.floor_cells.clear()
+	for x in range(1, main.W - 1):
+		for y in range(1, main.H - 1):
+			main.floor_cells[Vector2i(x, y)] = true
+	main._build_astar()
+	check(main.aggro_range() == Enemy.AGGRO_RANGE, "enemies notice you from %d tiles" % Enemy.AGGRO_RANGE)
+	player.place(Vector2i(4, 8))
+	var goblin := Enemy.new()
+	goblin.setup(Enemy.KINDS[2], 3)
+	main._add_enemy(goblin, Vector2i(14, 8))
+	cow = Cow.new()
+	cow.setup_boss(5)
+	cow.special_in = 99  # no big attacks
+	main._add_enemy(cow, Vector2i(14, 12))
+	for i in 2:
+		main._enemy_act(goblin)
+		main._enemy_act(cow)
+	check(goblin.grid_pos == Vector2i(14, 8) and cow.grid_pos == Vector2i(14, 12), "10 and 14 tiles away, enemies don't notice you")
+	main.wishes = {"loud_steps": 1}
+	check(main.aggro_range() == 2 * Enemy.AGGRO_RANGE, "a Loud Steps wish doubles it")
+	for i in 2:
+		main._enemy_act(goblin)
+		main._enemy_act(cow)
+	check(goblin.grid_pos == Vector2i(12, 8), "with Loud Steps an enemy 10 tiles away comes after you (%s)" % goblin.grid_pos)
+	check(main._dist(cow.grid_pos, Vector2i(14, 12)) == 1, "with Loud Steps the Cow 14 tiles away comes after you (%s)" % cow.grid_pos)
+	main.wishes = {"loud_steps": 2}
+	check(main.aggro_range() == 3 * Enemy.AGGRO_RANGE, "a second Loud Steps wish adds 7 more tiles")
+
+	# Every wish adds 25% XP: with 2, a Goblin's 2 XP becomes 3.
+	var xp_mult: float = player.xp_mult
+	player.xp_mult = 1.0
+	player.xp = 0
+	player.xp_to_next = 1000
+	main.wishes = {"challenge": 1, "loud_steps": 1}
+	goblin.take_damage(goblin.hp)
+	check(player.xp == 3, "2 wishes turn a Goblin's 2 XP into 3 (%d)" % player.xp)
+	main.wishes.clear()
+	cow.take_damage(cow.hp)
+	check(player.xp == 3 + 10 * 5, "with no wishes the Cow gives its normal XP (%d)" % (player.xp - 3))
+	player.xp_mult = xp_mult
+	main.coins.clear()
+	main.stairs = Vector2i(-1, -1)
+
+	# On a big floor the well is marked on the map and minimap once the floor is clear.
+	main.big_floor_chance = 1.0
+	main.well_chance = 1.0
+	main._new_floor()
+	clear_enemies(main)
+	main.seen_cells.clear()
+	main._floor_cleared()
+	check(main.well.x >= 0 and main.seen_cells.has(main.well), "the well is marked on a big floor")
+	await process_frame  # draw the minimap with the well on it
+	main.big_floor_chance = 0.0
+	main.well_chance = 0.0
+	main.wishes.clear()
+	main.state = main.State.PLAYER_TURN

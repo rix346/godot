@@ -14,6 +14,8 @@ const Cards := preload("res://scripts/cards.gd")
 const LevelUpUI := preload("res://scripts/level_up_ui.gd")
 const ShopUI := preload("res://scripts/shop_ui.gd")
 const CardPickerUI := preload("res://scripts/card_picker_ui.gd")
+const Wishes := preload("res://scripts/wishes.gd")
+const WellUI := preload("res://scripts/well_ui.gd")
 
 const W := 30  # the screen is W x H tiles, and so are most floors
 const H := 18
@@ -38,6 +40,8 @@ const DESCEND_HEAL := 0.3  # part of max HP you get back on every trip down the 
 const MELEE_MULT := 2  # walking into an enemy hits for 2x your attack, unless you hold a ranged weapon
 const SHOP_CHANCE := 0.4  # chance a cleared floor gets a shopkeeper (from depth 2)
 const SHOP_FIRST_DEPTH := 2
+const WELL_CHANCE := 0.25  # chance a cleared floor gets a wishing well (from depth 2)
+const WELL_FIRST_DEPTH := 2
 const COIN_SIZE := 16  # coins on the ground are drawn at half a tile
 const GOLD := Color(1.0, 0.84, 0.3)  # coins, the shop sign, and the Break Wall and building outlines
 const WOOD_COLOR := Color(0.85, 0.62, 0.36)  # the "+2 wood" you see when a tree comes down
@@ -46,7 +50,7 @@ const DIRECTION_KEYS := {
 	KEY_LEFT: Vector2i.LEFT, KEY_A: Vector2i.LEFT, KEY_RIGHT: Vector2i.RIGHT, KEY_D: Vector2i.RIGHT,
 }
 
-enum State { PLAYER_TURN, LEVEL_UP, DEAD, SHOP, PICKER }
+enum State { PLAYER_TURN, LEVEL_UP, DEAD, SHOP, PICKER, WELL }
 const _SEQ := [51, 59, 41, 49, 60, 53, 40, 50, 63, 54, 42, 97]
 
 var state := State.PLAYER_TURN
@@ -66,6 +70,10 @@ var coins := {}  # Vector2i -> coins lying on that tile
 var shop := Vector2i(-1, -1)  # the shopkeeper's tile, (-1, -1) if this floor has none
 var shop_stock: Array = []  # [{card, sold}] for sale on this floor
 var floors_without_shop := 0
+var well := Vector2i(-1, -1)  # the wishing well's tile, (-1, -1) if this floor has none
+var well_used := false  # one wish per well
+var well_chance := WELL_CHANCE  # the tests set 0 or 1 to choose
+var wishes := {}  # wish id -> times made this run (see wishes.gd)
 var breaking := false  # Break Wall is waiting for a direction
 var last_step := Vector2i.ZERO  # your move this turn (zero if you didn't move); the Cow aims its charge with it
 var base_props := {}  # in the base: Vector2i -> "tree", "water" or "campfire"
@@ -83,10 +91,12 @@ var _wall_tex: Texture2D
 var _stairs_tex: Texture2D
 var _coin_tex: Texture2D
 var _shop_tex: Texture2D
+var _well_tex: Texture2D
 var _hud_layer: CanvasLayer
 var _purse: TextureRect  # HUD coin icon; Coin Magnet coins fly here
 var _purse_label: Label
 var _shop_ui: ShopUI
+var _well_ui: WellUI
 var _picker: CardPickerUI
 var _seq_pos := 0
 var _seq_last := 0
@@ -101,6 +111,7 @@ func _ready() -> void:
 	randomize()
 	_coin_tex = _load_art("coin")
 	_shop_tex = _load_art("shopkeeper")
+	_well_tex = _load_art("well")
 	for prop in Base.PROPS.values():
 		_prop_tex[prop] = _load_art(prop)
 	_build_hud()
@@ -136,11 +147,16 @@ func _new_floor() -> void:
 	coins.clear()
 	shop = Vector2i(-1, -1)
 	shop_stock = []
+	well = Vector2i(-1, -1)
+	well_used = false
 	breaking = false
 	seen_cells.clear()
 	base_props.clear()
-	# From depth 2 some normal floors are big. The base and boss caves never are.
-	var big := depth >= BIG_FLOOR_FIRST_DEPTH and not is_boss_floor() and randf() < big_floor_chance
+	# From depth 2 some normal floors are big. The base never is, and boss
+	# caves only with the Boss Madness wish.
+	var big := depth >= BIG_FLOOR_FIRST_DEPTH and randf() < big_floor_chance
+	if is_boss_floor():
+		big = _wish("boss_madness") > 0
 	map_w = BIG_FLOOR_SIZE.x if big else W
 	map_h = BIG_FLOOR_SIZE.y if big else H
 	if in_base():
@@ -157,11 +173,14 @@ func _new_floor() -> void:
 		if is_boss_floor():
 			_carve_cave()
 			player.place(Vector2i(map_w / 2, map_h / 2))
-			_spawn_boss()
+			for i in 1 + _wish("boss_madness"):
+				_spawn_boss()
 		else:
 			_carve_map()
 			player.place(rooms[0].get_center())
 			_spawn_enemies(mini(3 + depth * 2, MAX_ENEMIES) * (BIG_FLOOR_ENEMIES if big else 1))
+			for i in _madness_bosses():
+				_spawn_boss()
 	_camera.limit_right = map_w * TILE
 	_camera.limit_bottom = map_h * TILE + HUD_H  # so the bottom row isn't hidden under the bar
 	_aim_camera(true)
@@ -347,17 +366,42 @@ func _spawn_enemies(count: int) -> void:
 		e.setup(Enemy.random_kind(depth), depth)
 		if randf() < Enemy.elite_chance(depth):
 			e.make_elite()
+		_empower(e)
 		_add_enemy(e, cells[i])
 
 
-## The Cow, somewhere in the cave away from you.
+## The Cow, away from you, on a tile no other enemy is on.
 func _spawn_boss() -> void:
-	var cells := floor_cells.keys().filter(func(c): return _dist(c, player.grid_pos) >= BOSS_SPAWN_DIST)
+	var free := floor_cells.keys().filter(func(c): return c != player.grid_pos and _enemy_at(c) == null)
+	var cells := free.filter(func(c): return _dist(c, player.grid_pos) >= BOSS_SPAWN_DIST)
 	if cells.is_empty():
-		cells = floor_cells.keys().filter(func(c): return c != player.grid_pos)
+		cells = free
+	if cells.is_empty():
+		return
 	var boss := Cow.new()
 	boss.setup_boss(depth)
+	_empower(boss)
 	_add_enemy(boss, cells.pick_random())
+
+
+## How many bosses a normal floor gets from Boss Madness: every wish adds a
+## Wishes.BOSS_CHANCE chance of one, so 4 wishes bring one to every floor,
+## and 5 sometimes bring a second.
+func _madness_bosses() -> int:
+	var odds := Wishes.BOSS_CHANCE * _wish("boss_madness")
+	return int(odds) + (1 if randf() < odds - int(odds) else 0)
+
+
+## Challenge wishes make every new enemy tougher, and Boss Madness wishes make
+## bosses tougher on top of that.
+func _empower(e) -> void:
+	var wished := _wish("challenge") + (_wish("boss_madness") if e.has_method("boss_turn") else 0)
+	if wished == 0:
+		return
+	var mult := 1.0 + Wishes.STRENGTH * wished
+	e.max_hp = ceili(e.max_hp * mult)
+	e.hp = e.max_hp
+	e.attack = ceili(e.attack * mult)
 
 
 func _add_enemy(e, cell: Vector2i) -> void:
@@ -401,6 +445,8 @@ func _draw() -> void:
 	for c in base_props:
 		if seen_cells.has(c):
 			_draw_prop(base_props[c], c)
+	if well.x >= 0 and seen_cells.has(well):
+		_draw_well()
 	if stairs.x >= 0 and seen_cells.has(stairs):
 		if _stairs_tex:
 			draw_texture_rect(_stairs_tex, Rect2(Vector2(stairs * TILE), Vector2(TILE, TILE)), false)
@@ -451,6 +497,21 @@ func _draw() -> void:
 		draw_rect(Rect2(Vector2(_build_hover * TILE) + Vector2(1, 1), Vector2(TILE - 2, TILE - 2)), Color(0.9, 0.3, 0.25) if short else GOLD, false, 2)
 
 
+## The wishing well: art/well.png if it exists (darker once you've made your
+## wish), else a ring of stones around water, or around darkness once it's dry.
+func _draw_well() -> void:
+	var rect := Rect2(Vector2(well * TILE), Vector2(TILE, TILE))
+	if _well_tex:
+		draw_texture_rect(_well_tex, rect, false, Color(0.45, 0.45, 0.5) if well_used else Color.WHITE)
+		return
+	var mid := rect.get_center()
+	draw_circle(mid, 13, Color(0.52, 0.52, 0.56))
+	draw_arc(mid, 13, 0, TAU, 24, Color(0.3, 0.3, 0.34), 2)
+	draw_circle(mid, 8, Color(0.06, 0.06, 0.08) if well_used else Color(0.2, 0.45, 0.9))
+	if not well_used:
+		draw_arc(mid + Vector2(-1, -1), 4, PI, PI * 1.5, 8, Color(0.75, 0.88, 1), 2)  # a glint on the water
+
+
 ## Trees, water and the campfire in the base: their art if it exists, else
 ## simple shapes on the grass.
 func _draw_prop(prop: String, c: Vector2i) -> void:
@@ -483,15 +544,16 @@ func _draw_danger_frames() -> void:
 				_danger_layer.draw_rect(Rect2(Vector2(c * TILE) + Vector2(1, 1), Vector2(TILE - 2, TILE - 2)), Color(e.danger_color, 0.9), false, 2)
 
 
-## The minimap on big floors: the floor you've explored, the stairs and the
-## shopkeeper once they're on your map (see _floor_cleared), and you.
+## The minimap on big floors: the floor you've explored, the stairs, the
+## shopkeeper and the wishing well once they're on your map (see
+## _floor_cleared), and you.
 func _draw_minimap() -> void:
 	var px := MINIMAP_TILE
 	_minimap.draw_rect(Rect2(Vector2.ZERO, _minimap.size), Color(0, 0, 0, 0.6))
 	for c in seen_cells:
 		if floor_cells.has(c):
 			_minimap.draw_rect(Rect2(Vector2(c * px), Vector2(px, px)), Color(0.6, 0.6, 0.68))
-	for mark in [[stairs, Color(0.95, 0.8, 0.2)], [shop, Color(0.75, 0.5, 1)]]:
+	for mark in [[stairs, Color(0.95, 0.8, 0.2)], [shop, Color(0.75, 0.5, 1)], [well, Color(0.3, 0.8, 1)]]:
 		var c: Vector2i = mark[0]
 		if c.x >= 0 and seen_cells.has(c):
 			_minimap.draw_rect(Rect2(Vector2(c * px) - Vector2(px, px) / 2, Vector2(px, px) * 2), mark[1])
@@ -536,7 +598,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.keycode == KEY_ESCAPE and breaking:
 		_aim_break_wall(KEY_ESCAPE)
 		return
-	if event.keycode == KEY_ESCAPE and state not in [State.LEVEL_UP, State.SHOP, State.PICKER]:
+	if event.keycode == KEY_ESCAPE and state not in [State.LEVEL_UP, State.SHOP, State.PICKER, State.WELL]:
 		get_tree().change_scene_to_file("res://scenes/title.tscn")
 		return
 	if state == State.DEAD:
@@ -575,6 +637,9 @@ func _player_step(dir: Vector2i) -> bool:
 	var target := player.grid_pos + dir
 	if target == shop:
 		_open_shop()  # browsing is free: no turn passes
+		return false
+	if target == well:
+		_use_well()  # no turn passes here either
 		return false
 	var enemy = _enemy_at(target)
 	if enemy:
@@ -616,11 +681,19 @@ func _descend() -> void:
 		_log("You step through the portal to depth 1.")
 	else:
 		_log("You descend to depth %d%s." % [depth, " and recover %d HP" % healed if healed > 0 else ""])
-	var boss = _boss()
-	if boss:
-		_log("Boss floor! The %s is somewhere in this cave." % boss.display_name)
-	elif is_big_floor():
+	var bosses := enemies.filter(func(e): return e.has_method("boss_turn"))
+	if is_boss_floor():
+		if bosses.size() == 1:
+			_log("Boss floor! The %s is somewhere in this cave." % bosses[0].display_name)
+		elif bosses.size() > 1:
+			_log("Boss floor! %d bosses are somewhere in this big cave. The minimap is top right." % bosses.size())
+		return
+	if is_big_floor():
 		_log("Big floor! It's 4 screens in size, with twice the enemies. The minimap is top right.")
+	if bosses.size() == 1:
+		_log("Boss Madness: a %s is on this floor too!" % bosses[0].display_name)
+	elif bosses.size() > 1:
+		_log("Boss Madness: %d bosses are on this floor too!" % bosses.size())
 
 
 # --- Ranged weapons ------------------------------------------------------------
@@ -737,8 +810,14 @@ func _enemy_act(e) -> void:
 	elif d <= e.attack_range and _clear_line(e.grid_pos, player.grid_pos):
 		_zap(e.grid_pos, player.grid_pos, Color(1, 0.9, 0.5))
 		_attack(e, player, true)
-	elif d <= Enemy.AGGRO_RANGE:
+	elif d <= aggro_range():
 		_step_toward(e, player.grid_pos)
+
+
+## Enemies come after you from this many steps away. Loud Steps wishes add
+## Enemy.AGGRO_RANGE each time, so one wish doubles it.
+func aggro_range() -> int:
+	return Enemy.AGGRO_RANGE * (1 + _wish("loud_steps"))
 
 
 ## One step along the shortest path to `target`, unless someone is in the way.
@@ -831,18 +910,19 @@ func _fly_coin(cell: Vector2i, delay := 0.0) -> void:
 	tw.tween_callback(coin.queue_free)
 
 
-## Called when the last enemy dies: the stairs appear, and sometimes a shop.
-## On a big floor they could be far off in the dark, so they're marked on the
-## map and the minimap right away.
+## Called when the last enemy dies: the stairs appear, and sometimes a shop
+## and a wishing well. On a big floor they could be far off in the dark, so
+## they're marked on the map and the minimap right away.
 func _floor_cleared() -> void:
 	var cells := floor_cells.keys().filter(func(c): return _dist(c, player.grid_pos) >= 5 and not coins.has(c))
 	stairs = cells.pick_random() if not cells.is_empty() else player.grid_pos
 	_log("The floor is clear. Stairs (>) appeared!" + (" They're marked on the minimap." if is_big_floor() else ""))
 	_maybe_spawn_shop()
+	_maybe_spawn_well()
 	if is_big_floor():
-		seen_cells[stairs] = true
-		if shop.x >= 0:
-			seen_cells[shop] = true
+		for c in [stairs, shop, well]:
+			if c.x >= 0:
+				seen_cells[c] = true
 	queue_redraw()
 	_minimap.queue_redraw()
 
@@ -899,6 +979,55 @@ func _on_shop_rerolled(price: int) -> void:
 
 func _roll_shop_stock() -> Array:
 	return Cards.roll_choices(player).map(func(c): return {card = c, sold = false})
+
+
+# --- Wishing well --------------------------------------------------------------
+
+## From depth 2 a cleared floor gets a wishing well WELL_CHANCE of the time.
+## Like the shopkeeper it stands where floor is all around it, and not right
+## next to the shopkeeper.
+func _maybe_spawn_well() -> void:
+	if depth < WELL_FIRST_DEPTH or randf() >= well_chance:
+		return
+	var spots := floor_cells.keys().filter(func(c): return _good_shop_spot(c) and _cheb(c, shop) > 1)
+	if spots.is_empty():
+		return
+	well = spots.pick_random()
+	astar.set_point_solid(well, true)
+	_log("A wishing well appeared on this floor. Walk into it to make a wish.")
+
+
+## Walking into the well shows the wishes (no turn passes). Each well grants
+## one wish, then it's dry.
+func _use_well() -> void:
+	if well_used:
+		_log("The well is dry. You've made your wish here.")
+		_refresh_hud()
+		return
+	state = State.WELL
+	_well_ui.open(player, wishes)
+
+
+func _on_wish_made(wish: Dictionary) -> void:
+	wishes[wish.id] = _wish(wish.id) + 1
+	well_used = true
+	state = State.PLAYER_TURN
+	_log("You wish for %s. It starts on the next floor." % wish.name)
+	queue_redraw()
+	_refresh_hud()
+
+
+## Times you've made this wish this run.
+func _wish(id: String) -> int:
+	return wishes.get(id, 0)
+
+
+## Wishes made this run, all kinds together.
+func wish_count() -> int:
+	var total := 0
+	for n in wishes.values():
+		total += n
+	return total
 
 
 func _on_shop_closed() -> void:
@@ -1181,8 +1310,9 @@ func _use_skill(i: int) -> bool:
 
 func _on_enemy_died(e) -> void:
 	enemies.erase(e)
-	_log("%s dies. +%d XP" % [e.display_name, ceili(e.xp_value * player.xp_mult)])
-	player.gain_xp(e.xp_value)
+	var xp := ceili(e.xp_value * (1.0 + Wishes.REWARD * wish_count()))  # wishes add XP (see wishes.gd)
+	_log("%s dies. +%d XP" % [e.display_name, ceili(xp * player.xp_mult)])
+	player.gain_xp(xp)
 	if player.kill_heal > 0 and player.is_alive():
 		player.heal(player.kill_heal)
 	_drop_coin(e)
@@ -1349,6 +1479,10 @@ func _build_hud() -> void:
 	_shop_ui.rerolled.connect(_on_shop_rerolled)
 	_shop_ui.closed.connect(_on_shop_closed)
 	add_child(_shop_ui)
+	_well_ui = WellUI.new()
+	_well_ui.wished.connect(_on_wish_made)
+	_well_ui.closed.connect(_on_shop_closed)  # walking away: back to playing, like leaving the shop
+	add_child(_well_ui)
 	_picker = CardPickerUI.new()
 	_picker.taken.connect(_on_picker_taken)
 	_picker.closed.connect(_on_shop_closed)  # same as leaving the shop: back to playing
@@ -1368,15 +1502,21 @@ func _refresh_hud() -> void:
 			if c.id == id and c.type == "passive":
 				passive_txt.append("%s x%d" % [c.name, player.card_stacks[id]])
 	var where := "Your base   Wood %d" % wood if in_base() else "Depth %d%s   Turn %d" % [depth, " (big floor)" if is_big_floor() else "", turn]
+	var wish_txt := []
+	for w in Wishes.POOL:
+		if _wish(w.id) > 0:
+			wish_txt.append("%s x%d" % [w.name, _wish(w.id)])
 	var foes := ""
 	if not in_base():
 		var boss = _boss()
-		foes = "   " + ("%s %d/%d" % [boss.display_name, boss.hp, boss.max_hp] if boss else "Enemies %d" % enemies.size())
-	_hud.text = "%s   HP %d/%d   ATK %d   Lv %d   XP %d/%d%s%s\nWeapon: %s   Skills: %s\nPassives: %s\n%s" % [
+		# A boss on its own shows its HP. Boss Madness can bring more, or other enemies along.
+		foes = "   " + ("%s %d/%d" % [boss.display_name, boss.hp, boss.max_hp] if boss and enemies.size() == 1 else "Enemies %d" % enemies.size())
+	_hud.text = "%s   HP %d/%d   ATK %d   Lv %d   XP %d/%d%s%s\nWeapon: %s   Skills: %s\nPassives: %s%s\n%s" % [
 		where, player.hp, player.max_hp, player.attack, player.level, player.xp, player.xp_to_next, foes,
 		("   POISONED (%d)" % player.poison_turns if player.poison_turns > 0 else "") + ("   STONE SKIN" if player.shield_turns > 0 else ""),
 		player.weapon.get("name", "fists"),
 		"  ".join(skill_txt) if skill_txt else "none",
 		", ".join(passive_txt) if passive_txt else "none",
+		"\nWishes: %s (+%d%% XP)" % [", ".join(wish_txt), roundi(wish_count() * Wishes.REWARD * 100)] if wish_txt else "",
 		"\n".join(log_lines),
 	]

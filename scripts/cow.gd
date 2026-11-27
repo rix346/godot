@@ -69,7 +69,7 @@ func boss_turn(game) -> void:
 		game._attack(self, player)
 	else:
 		_walk = not _walk
-		if _walk and d <= AGGRO_RANGE:
+		if _walk and d <= game.aggro_range():  # Loud Steps wishes make it notice you from further away
 			game._step_toward(self, player.grid_pos)
 
 

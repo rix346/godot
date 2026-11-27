@@ -10,7 +10,6 @@ signal closed
 
 const PRICES := {common = 3, rare = 5, epic = 8, legendary = 12}
 const REROLL_PRICE := 5
-const GOLD := Color(1.0, 0.84, 0.3)
 const RED := Color(1.0, 0.45, 0.4)
 
 var _player
@@ -43,19 +42,6 @@ func _ready() -> void:
 	buttons.add_child(_reroll)
 	_leave = _menu_button("Leave  [Esc]", _close)
 	buttons.add_child(_leave)
-
-
-func _menu_button(text: String, on_press: Callable) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.flat = true
-	b.add_theme_font_size_override("font_size", 22)
-	b.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85))
-	for state in ["font_hover_color", "font_focus_color", "font_pressed_color", "font_hover_pressed_color"]:
-		b.add_theme_color_override(state, GOLD)
-	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	b.pressed.connect(on_press)
-	return b
 
 
 func open(player, stock: Array) -> void:
