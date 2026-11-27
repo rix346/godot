@@ -4,7 +4,7 @@ A turn-based dungeon crawler made in Godot. Every run starts in your base, a cal
 
 ![Title screen](docs/title.png)
 
-**Contents:** [Running the game](#running-the-game) · [How to play](#how-to-play) · [Controls](#controls) · [Your base](#your-base) · [Enemies](#enemies) · [Boss floors](#boss-floors) · [Coins and the shop](#coins-and-the-shop) · [Cards](#cards) · [Weapons](#weapons) · [Skills](#skills) · [Passives](#passives) · [Adding art](#adding-art) · [For developers](#for-developers) · [Credits](#credits)
+**Contents:** [Running the game](#running-the-game) · [How to play](#how-to-play) · [Controls](#controls) · [Your base](#your-base) · [Enemies](#enemies) · [Boss floors](#boss-floors) · [Big floors](#big-floors) · [Coins and the shop](#coins-and-the-shop) · [Cards](#cards) · [Weapons](#weapons) · [Skills](#skills) · [Passives](#passives) · [Adding art](#adding-art) · [For developers](#for-developers) · [Credits](#credits)
 
 ---
 
@@ -44,6 +44,7 @@ To try a change before it's merged, go to **Current Branch → Pull Requests**, 
 - **Healing.** You heal **1 HP every 10 turns** on your own, and 30% of your max HP every time you take the stairs. Cards like Second Wind, Vampiric Fangs, Bloodlust and Mend heal more.
 - **Clear the floor.** When every enemy on a floor is dead, the **stairs** appear. Step on them to go one depth deeper, and you **heal 30% of your max HP** on the way down. The dungeon never ends. Each depth has 2 more enemies than the last, up to 20, and after that the enemies just keep getting tougher. See [Enemies](#enemies).
 - **Boss floors.** Every 5th depth (5, 10, 15, ...) is a cave with one boss in it, the Cow. See [Boss floors](#boss-floors).
+- **Big floors.** From depth 2, some floors are 4 screens in size, with twice the enemies. The map follows you around, and a minimap shows where you've been. See [Big floors](#big-floors).
 - **Coins and the shop.** Enemies sometimes drop coins. Spend them at the shopkeeper, who shows up on some floors. See [Coins and the shop](#coins-and-the-shop).
 - **Fog of war.** You see 7 tiles around you, and walls block your view. Places you've already seen stay on the map, darker.
 - **Level up.** Kills give XP. Each level-up pauses the game and offers **3 cards**, and you pick one. Each level needs a bit more XP than the last.
@@ -107,7 +108,7 @@ Enemies chase you once you're within 7 tiles of them.
 
 ### Deeper down
 
-- **Up to 20 enemies a floor.** A floor has 3 + 2 × depth enemies, which reaches 20 on depth 9. Deeper floors don't get more crowded, they get harder.
+- **Up to 20 enemies a floor.** A floor has 3 + 2 × depth enemies, which reaches 20 on depth 9. Deeper floors don't get more crowded, they get harder. [Big floors](#big-floors) have twice as many, up to 40.
 - **A tougher mix.** On depth 1 every enemy type is about as likely. The deeper you go, the more often the tough types show up and the weak ones fade out. By depth 10 a Knight is 10 times as likely as a Rat.
 - **Elites.** From depth 9, some enemies spawn as **elites** with a **gold frame**: 5% of them on depth 9, then 5% more every depth, up to 75%. An elite has **double HP**, **1.5× attack** and gives **double XP**, and it **always drops a coin**. Its name starts with "Elite" in the log.
 
@@ -147,6 +148,19 @@ The Cow hits you up close like any enemy, but it only walks toward you every oth
 After a big attack lands, it fights normally for 2 turns before it can start the next one. Stone Skin blocks the big attacks too.
 
 **Tips:** the charge aims one step ahead of you, so if you keep walking the same way you run straight into it. Step sideways or stand still. The stomp gives you a couple of free hits before you have to get 3 tiles away.
+
+---
+
+## Big floors
+
+From depth 2, every floor has a 30% chance to be a **big floor**: 60 × 36 tiles, 4 times the size of a normal floor (one screen). The base and boss floors are never big. When you arrive, the log says so, and the bar at the bottom says "(big floor)" after the depth.
+
+![A big floor right after it was cleared, with the stairs and the shopkeeper on the minimap](docs/big-floor.png)
+
+- **The map follows you.** You stay in the middle of the screen and the map scrolls as you move. At the edge of the map it stops scrolling.
+- **More rooms and more enemies.** A big floor has about 4 times the rooms, and **twice the enemies**: 3 + 2 × depth, times 2, up to 40. More enemies also means more XP and coins.
+- **Minimap.** The box in the top-right corner shows the floor you've explored and where you are (white). It fades while you walk behind it.
+- **Finding the way out.** When you clear a big floor, the stairs (yellow) and the shopkeeper, if one shows up (purple), are marked on the minimap right away, so you don't have to search the whole floor for them.
 
 ---
 
@@ -270,7 +284,7 @@ Written in GDScript. The UI is built in code, so there are only two scenes.
 | File | What's in it |
 |---|---|
 | `scenes/title.tscn`, `scripts/title.gd` | Title screen (Play / Credits / Exit). Credits text is `CREDITS` |
-| `scenes/main.tscn`, `scripts/main.gd` | The base (chopping trees, building walls), dungeon generation (rooms, and caves on boss floors), fog of war, turn loop, combat, weapons, skills, coins, shop, HUD |
+| `scenes/main.tscn`, `scripts/main.gd` | The base (chopping trees, building walls), dungeon generation (rooms, big floors, and caves on boss floors), the camera and minimap, fog of war, turn loop, combat, weapons, skills, coins, shop, HUD |
 | `scripts/base.gd` | The base's starting map (`LAYOUT`, one character per tile), the wood a tree gives (`WOOD_PER_TREE`) and a wall costs (`WALL_COST`), and saving what players change |
 | `scripts/unit.gd` | Shared grid unit: HP, drawing, damage, movement |
 | `scripts/player.gd` | XP, levels and the stats cards change |
@@ -280,10 +294,11 @@ Written in GDScript. The UI is built in code, so there are only two scenes.
 | `scripts/level_up_ui.gd` | The 3-card pick screen |
 | `scripts/shop_ui.gd` | The shop screen. Prices are in `PRICES`, the reroll cost in `REROLL_PRICE` |
 | `tools/sim.gd` | Headless bot that plays random turns (smoke test) |
-| `tools/feature_test.gd` | Checks the base (layout, chopping trees, building, saving, the portal), the coin, shop, Night Vision, Break Wall, enemy cap, elite and boss rules (each of the Cow's attacks), double melee damage, natural healing and arrows against the Cow, then applies every card and fires every skill on a depth-3 floor |
+| `tools/feature_test.gd` | Checks the base (layout, chopping trees, building, saving, the portal), the coin, shop, Night Vision, Break Wall, enemy cap, elite and boss rules (each of the Cow's attacks), double melee damage, natural healing, arrows against the Cow and big floors (size, rooms, enemies, the camera and minimap), then applies every card and fires every skill on a depth-3 floor |
 
 **Changing the base:** edit `LAYOUT` in `scripts/base.gd`. The key is at the top of the file. Only what players change is saved (the trees they chopped down, the walls they built or took down, and their wood), so edits to `LAYOUT` reach everyone's base. To start your own base over, delete `dungeons_to_the_bottom_base.json` from Godot's user data folder (in Godot: **Project → Open User Data Folder**).
 **Adding an enemy:** add a line to `KINDS` in `scripts/enemy.gd`. The optional keys are `actions`, `range`, `slow` and `poison`.
+**Big floors:** `BIG_FLOOR_SIZE`, `BIG_FLOOR_CHANCE`, `BIG_FLOOR_FIRST_DEPTH` and `BIG_FLOOR_ENEMIES` at the top of `scripts/main.gd` set how big they are, how often they come, from which depth, and how many more enemies they have.
 **Adding a boss:** make a script that extends `scripts/enemy.gd`, like `scripts/cow.gd`, with a `boss_turn(game)` function. `main.gd` calls it instead of the normal enemy turn. Tiles you put in its `danger` list are marked on the map (`danger_color`). Spawn it in `_spawn_boss()` in `main.gd`.
 **Adding a card:** add an entry to `POOL` in `scripts/cards.gd`. Passives go in `apply()`, skills in `_use_skill()` in `main.gd`, and weapons use keys like `atk`, `crit`, `reach`, `ranged`.
 

@@ -15,12 +15,18 @@ const LevelUpUI := preload("res://scripts/level_up_ui.gd")
 const ShopUI := preload("res://scripts/shop_ui.gd")
 const CardPickerUI := preload("res://scripts/card_picker_ui.gd")
 
-const W := 30
+const W := 30  # the screen is W x H tiles, and so are most floors
 const H := 18
 const TILE := Unit.TILE
-const MAX_ROOMS := 9
+const HUD_H := 720 - H * TILE  # the bar at the bottom of the screen
+const MAX_ROOMS := 9  # on a W x H floor; big floors get more
 const EXTRA_CORRIDORS := 2  # extra links between random rooms, so maps have loops
 const MAX_ENEMIES := 20  # 3 + 2 per depth reaches this on depth 9; deeper floors get tougher, not fuller
+const BIG_FLOOR_SIZE := Vector2i(60, 36)  # 4 screens: the camera follows you around it
+const BIG_FLOOR_CHANCE := 0.3  # chance a normal floor is big, from BIG_FLOOR_FIRST_DEPTH on
+const BIG_FLOOR_FIRST_DEPTH := 2
+const BIG_FLOOR_ENEMIES := 2  # a big floor has this many times the enemies (and the cap)
+const MINIMAP_TILE := 3  # pixels per tile on the minimap
 const BOSS_EVERY := 5  # every 5th depth is a cave with a boss and no other enemies
 const CAVE_FILL := 0.42  # share of a boss cave that is floor
 const BOSS_SPAWN_DIST := 8  # the boss starts at least this many steps from you
@@ -46,6 +52,9 @@ const _SEQ := [51, 59, 41, 49, 60, 53, 40, 50, 63, 54, 42, 97]
 var state := State.PLAYER_TURN
 var depth := 0  # 0 is your base, 1 and up the dungeon
 var turn := 1
+var map_w := W  # this floor's size in tiles: W x H, or BIG_FLOOR_SIZE on a big floor
+var map_h := H
+var big_floor_chance := BIG_FLOOR_CHANCE  # the tests set 0 or 1 to choose
 var floor_cells := {}  # Vector2i -> true
 var rooms: Array[Rect2i] = []
 var visible_cells := {}  # in the player's line of sight right now
@@ -82,6 +91,8 @@ var _picker: CardPickerUI
 var _seq_pos := 0
 var _seq_last := 0
 var _danger_layer: Node2D  # frames boss attack tiles above the units
+var _camera: Camera2D  # follows you on big floors; on W x H floors it can't move
+var _minimap: Control  # top-right corner, on big floors only
 var _prop_tex := {}  # "tree" -> art/tree.png and so on, null where there's no file yet
 var _build_hover := Vector2i(-1, -1)  # in the base: the tile under the mouse
 
@@ -97,6 +108,13 @@ func _ready() -> void:
 	_danger_layer.z_index = 4
 	_danger_layer.draw.connect(_draw_danger_frames)
 	add_child(_danger_layer)
+	_camera = Camera2D.new()
+	_camera.position_smoothing_enabled = true
+	_camera.position_smoothing_speed = 8.0
+	_camera.limit_left = 0
+	_camera.limit_top = 0
+	add_child(_camera)
+	_camera.make_current()
 	player = Player.new()
 	player.died.connect(_on_player_died)
 	add_child(player)
@@ -121,26 +139,35 @@ func _new_floor() -> void:
 	breaking = false
 	seen_cells.clear()
 	base_props.clear()
+	# From depth 2 some normal floors are big. The base and boss caves never are.
+	var big := depth >= BIG_FLOOR_FIRST_DEPTH and not is_boss_floor() and randf() < big_floor_chance
+	map_w = BIG_FLOOR_SIZE.x if big else W
+	map_h = BIG_FLOOR_SIZE.y if big else H
 	if in_base():
 		_floor_tex = _load_art("base_floor")
 		_wall_tex = _load_art("base_wall")
 		_stairs_tex = _load_art("portal")
 		_build_base()
-		_update_fov()
-		return
-	# Boss caves always use the depth 1 tiles.
-	var art_depth := 1 if is_boss_floor() else depth
-	_floor_tex = _depth_art("floor", art_depth)
-	_wall_tex = _depth_art("wall", art_depth)
-	_stairs_tex = _depth_art("stairs", art_depth)
-	if is_boss_floor():
-		_carve_cave()
-		player.place(Vector2i(W / 2, H / 2))
-		_spawn_boss()
 	else:
-		_carve_map()
-		player.place(rooms[0].get_center())
-		_spawn_enemies(mini(3 + depth * 2, MAX_ENEMIES))
+		# Boss caves always use the depth 1 tiles.
+		var art_depth := 1 if is_boss_floor() else depth
+		_floor_tex = _depth_art("floor", art_depth)
+		_wall_tex = _depth_art("wall", art_depth)
+		_stairs_tex = _depth_art("stairs", art_depth)
+		if is_boss_floor():
+			_carve_cave()
+			player.place(Vector2i(map_w / 2, map_h / 2))
+			_spawn_boss()
+		else:
+			_carve_map()
+			player.place(rooms[0].get_center())
+			_spawn_enemies(mini(3 + depth * 2, MAX_ENEMIES) * (BIG_FLOOR_ENEMIES if big else 1))
+	_camera.limit_right = map_w * TILE
+	_camera.limit_bottom = map_h * TILE + HUD_H  # so the bottom row isn't hidden under the bar
+	_aim_camera(true)
+	_minimap.visible = big
+	_minimap.size = Vector2(map_w, map_h) * MINIMAP_TILE
+	_minimap.position = Vector2(W * TILE - _minimap.size.x - 10, 10)
 	_update_fov()
 
 
@@ -152,14 +179,37 @@ func in_base() -> bool:
 	return depth == 0
 
 
+## Bigger than the screen, so the camera follows you and there's a minimap.
+func is_big_floor() -> bool:
+	return map_w > W or map_h > H
+
+
+func _process(_delta: float) -> void:
+	_aim_camera()
+	if _minimap.visible:
+		# Fade the minimap while you're walking behind it.
+		var on_screen := get_global_transform_with_canvas() * Vector2(player.grid_pos * TILE + Vector2i(TILE, TILE) / 2)
+		_minimap.modulate.a = 0.25 if _minimap.get_rect().grow(TILE).has_point(on_screen) else 1.0
+
+
+## Points the camera at you, a little below you so you're in the middle of
+## the map above the bar. It glides after you, and on a new floor it jumps
+## (`snap`). It stops at the map's edges, so on a W x H floor it never moves.
+func _aim_camera(snap := false) -> void:
+	_camera.position = Vector2(player.grid_pos * TILE) + Vector2(TILE / 2, TILE / 2 + HUD_H / 2)
+	if snap:
+		_camera.reset_smoothing()
+		_camera.force_update_scroll()
+
+
 ## The base: Base.LAYOUT, plus the trees you've chopped down and the walls
 ## you've built or taken down there, and your wood.
 ## The portal is this floor's stairs, so stepping on it takes you to depth 1.
 func _build_base() -> void:
 	floor_cells.clear()
 	rooms.clear()
-	for y in H:
-		for x in W:
+	for y in map_h:
+		for x in map_w:
 			var c := Vector2i(x, y)
 			var ch := Base.tile(c)
 			if Base.PROPS.has(ch):
@@ -187,14 +237,16 @@ func _build_base() -> void:
 
 ## Non-overlapping rectangular rooms, chained left to right by L-shaped
 ## corridors (plus a few extra links), so every floor tile is reachable.
+## A big floor gets as many rooms and links for its size as a normal one.
 func _carve_map() -> void:
 	floor_cells.clear()
 	rooms.clear()
-	for attempt in 100:
-		if rooms.size() >= MAX_ROOMS:
+	var screens := map_w * map_h / (W * H)  # 1, or 4 on a big floor
+	for attempt in 100 * screens:
+		if rooms.size() >= MAX_ROOMS * screens:
 			break
 		var size := Vector2i(randi_range(4, 8), randi_range(3, 6))
-		var room := Rect2i(Vector2i(randi_range(1, W - size.x - 1), randi_range(1, H - size.y - 1)), size)
+		var room := Rect2i(Vector2i(randi_range(1, map_w - size.x - 1), randi_range(1, map_h - size.y - 1)), size)
 		if not rooms.any(func(other): return other.grow(1).intersects(room)):
 			rooms.append(room)
 	rooms.sort_custom(func(a, b): return a.position.x < b.position.x)
@@ -204,7 +256,7 @@ func _carve_map() -> void:
 				floor_cells[Vector2i(x, y)] = true
 		if i > 0:
 			_carve_corridor(rooms[i - 1].get_center(), rooms[i].get_center())
-	for i in EXTRA_CORRIDORS:
+	for i in EXTRA_CORRIDORS * screens:
 		_carve_corridor(rooms.pick_random().get_center(), rooms.pick_random().get_center())
 	_build_astar()
 
@@ -215,21 +267,21 @@ func _carve_map() -> void:
 func _carve_cave() -> void:
 	floor_cells.clear()
 	rooms.clear()
-	var pos := Vector2i(W / 2, H / 2)
-	while floor_cells.size() < int(W * H * CAVE_FILL):
+	var pos := Vector2i(map_w / 2, map_h / 2)
+	while floor_cells.size() < int(map_w * map_h * CAVE_FILL):
 		floor_cells[pos] = true
-		pos = (pos + DIRS.pick_random()).clamp(Vector2i(1, 1), Vector2i(W - 2, H - 2))
+		pos = (pos + DIRS.pick_random()).clamp(Vector2i(1, 1), Vector2i(map_w - 2, map_h - 2))
 	_build_astar()
 
 
 ## Pathfinding grid for enemies: walls are solid.
 func _build_astar() -> void:
-	astar.region = Rect2i(0, 0, W, H)
+	astar.region = Rect2i(0, 0, map_w, map_h)
 	astar.cell_size = Vector2(1, 1)
 	astar.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_NEVER
 	astar.update()
-	for x in W:
-		for y in H:
+	for x in map_w:
+		for y in map_h:
 			astar.set_point_solid(Vector2i(x, y), not floor_cells.has(Vector2i(x, y)))
 
 
@@ -250,8 +302,8 @@ func _update_fov() -> void:
 	var p := player.grid_pos
 	if in_base():
 		# No fog at home.
-		for x in W:
-			for y in H:
+		for x in map_w:
+			for y in map_h:
 				visible_cells[Vector2i(x, y)] = true
 		seen_cells.merge(visible_cells)
 	elif player.night_vision:
@@ -262,8 +314,8 @@ func _update_fov() -> void:
 					visible_cells[Vector2i(x, y)] = true
 		seen_cells.merge(visible_cells)
 	else:
-		for x in range(maxi(0, p.x - SIGHT), mini(W, p.x + SIGHT + 1)):
-			for y in range(maxi(0, p.y - SIGHT), mini(H, p.y + SIGHT + 1)):
+		for x in range(maxi(0, p.x - SIGHT), mini(map_w, p.x + SIGHT + 1)):
+			for y in range(maxi(0, p.y - SIGHT), mini(map_h, p.y + SIGHT + 1)):
 				var c := Vector2i(x, y)
 				if (c - p).length_squared() <= SIGHT * SIGHT and _line_of_sight(p, c):
 					visible_cells[c] = true
@@ -271,6 +323,7 @@ func _update_fov() -> void:
 	for e in enemies:
 		e.visible = visible_cells.has(e.grid_pos)
 	queue_redraw()
+	_minimap.queue_redraw()
 
 
 ## True if nothing but floor lies strictly between a and b (walls at b are
@@ -323,25 +376,31 @@ func _boss():
 
 
 func _draw() -> void:
-	draw_rect(Rect2(Vector2.ZERO, Vector2(W * TILE, H * TILE)), Color.BLACK)
-	for x in W:
-		for y in H:
-			var c := Vector2i(x, y)
-			if not seen_cells.has(c):
-				continue
-			var is_floor := floor_cells.has(c) or base_props.has(c)  # trees and the campfire stand on the ground
-			var tex := _floor_tex if is_floor else _wall_tex
-			if tex:
-				draw_texture_rect(tex, Rect2(Vector2(c * TILE), Vector2(TILE, TILE)), false)
-			else:
-				var col: Color
-				if in_base():
-					col = Color(0.3, 0.46, 0.26) if is_floor else Color(0.45, 0.34, 0.23)
+	draw_rect(Rect2(Vector2.ZERO, Vector2(map_w * TILE, map_h * TILE)), Color.BLACK)
+	# All the floor first, then all the walls: tiles that share a texture are
+	# drawn together, which keeps big floors fast.
+	for walls in [false, true]:
+		for x in map_w:
+			for y in map_h:
+				var c := Vector2i(x, y)
+				if not seen_cells.has(c):
+					continue
+				var is_floor := floor_cells.has(c) or base_props.has(c)  # trees and the campfire stand on the ground
+				if is_floor == walls:
+					continue
+				var tex := _floor_tex if is_floor else _wall_tex
+				if tex:
+					draw_texture_rect(tex, Rect2(Vector2(c * TILE), Vector2(TILE, TILE)), false)
 				else:
-					col = Color(0.16, 0.16, 0.2) if is_floor else Color(0.05, 0.05, 0.07)
-				draw_rect(Rect2(Vector2(c * TILE), Vector2(TILE - 1, TILE - 1)), col)
-			if base_props.has(c):
-				_draw_prop(base_props[c], c)
+					var col: Color
+					if in_base():
+						col = Color(0.3, 0.46, 0.26) if is_floor else Color(0.45, 0.34, 0.23)
+					else:
+						col = Color(0.16, 0.16, 0.2) if is_floor else Color(0.05, 0.05, 0.07)
+					draw_rect(Rect2(Vector2(c * TILE), Vector2(TILE - 1, TILE - 1)), col)
+	for c in base_props:
+		if seen_cells.has(c):
+			_draw_prop(base_props[c], c)
 	if stairs.x >= 0 and seen_cells.has(stairs):
 		if _stairs_tex:
 			draw_texture_rect(_stairs_tex, Rect2(Vector2(stairs * TILE), Vector2(TILE, TILE)), false)
@@ -422,6 +481,22 @@ func _draw_danger_frames() -> void:
 		for c in e.danger:
 			if seen_cells.has(c):
 				_danger_layer.draw_rect(Rect2(Vector2(c * TILE) + Vector2(1, 1), Vector2(TILE - 2, TILE - 2)), Color(e.danger_color, 0.9), false, 2)
+
+
+## The minimap on big floors: the floor you've explored, the stairs and the
+## shopkeeper once they're on your map (see _floor_cleared), and you.
+func _draw_minimap() -> void:
+	var px := MINIMAP_TILE
+	_minimap.draw_rect(Rect2(Vector2.ZERO, _minimap.size), Color(0, 0, 0, 0.6))
+	for c in seen_cells:
+		if floor_cells.has(c):
+			_minimap.draw_rect(Rect2(Vector2(c * px), Vector2(px, px)), Color(0.6, 0.6, 0.68))
+	for mark in [[stairs, Color(0.95, 0.8, 0.2)], [shop, Color(0.75, 0.5, 1)]]:
+		var c: Vector2i = mark[0]
+		if c.x >= 0 and seen_cells.has(c):
+			_minimap.draw_rect(Rect2(Vector2(c * px) - Vector2(px, px) / 2, Vector2(px, px) * 2), mark[1])
+	_minimap.draw_circle(Vector2(player.grid_pos * px) + Vector2(px, px) / 2, px, Color.WHITE)
+	_minimap.draw_rect(Rect2(Vector2.ZERO, _minimap.size), Color(1, 1, 1, 0.4), false, 1)
 
 
 ## Tile art for depth `d`: <name>_<d>.png, else the nearest shallower
@@ -544,6 +619,8 @@ func _descend() -> void:
 	var boss = _boss()
 	if boss:
 		_log("Boss floor! The %s is somewhere in this cave." % boss.display_name)
+	elif is_big_floor():
+		_log("Big floor! It's 4 screens in size, with twice the enemies. The minimap is top right.")
 
 
 # --- Ranged weapons ------------------------------------------------------------
@@ -743,7 +820,8 @@ func _fly_coin(cell: Vector2i, delay := 0.0) -> void:
 	var coin := Sprite2D.new()
 	coin.texture = _coin_tex
 	coin.scale = Vector2(COIN_SIZE, COIN_SIZE) / _coin_tex.get_size()
-	coin.position = Vector2(cell * TILE) + Vector2(TILE, TILE) / 2
+	# The bar doesn't scroll with the map, so start from where the tile is on screen.
+	coin.position = get_global_transform_with_canvas() * (Vector2(cell * TILE) + Vector2(TILE, TILE) / 2)
 	_hud_layer.add_child(coin)
 	var tw := coin.create_tween()
 	if delay > 0:
@@ -754,12 +832,19 @@ func _fly_coin(cell: Vector2i, delay := 0.0) -> void:
 
 
 ## Called when the last enemy dies: the stairs appear, and sometimes a shop.
+## On a big floor they could be far off in the dark, so they're marked on the
+## map and the minimap right away.
 func _floor_cleared() -> void:
 	var cells := floor_cells.keys().filter(func(c): return _dist(c, player.grid_pos) >= 5 and not coins.has(c))
 	stairs = cells.pick_random() if not cells.is_empty() else player.grid_pos
-	_log("The floor is clear. Stairs (>) appeared!")
+	_log("The floor is clear. Stairs (>) appeared!" + (" They're marked on the minimap." if is_big_floor() else ""))
 	_maybe_spawn_shop()
+	if is_big_floor():
+		seen_cells[stairs] = true
+		if shop.x >= 0:
+			seen_cells[shop] = true
 	queue_redraw()
+	_minimap.queue_redraw()
 
 
 ## From depth 2 a cleared floor gets a shopkeeper SHOP_CHANCE of the time, and
@@ -883,7 +968,7 @@ func _aim_break_wall(key: int) -> bool:
 ## The map's outer wall and the 4 corner tiles around every room can't break,
 ## and neither can the base's trees, water and campfire.
 func _can_break(cell: Vector2i) -> bool:
-	if cell.x <= 0 or cell.y <= 0 or cell.x >= W - 1 or cell.y >= H - 1 or base_props.has(cell):
+	if cell.x <= 0 or cell.y <= 0 or cell.x >= map_w - 1 or cell.y >= map_h - 1 or base_props.has(cell):
 		return false
 	for r in rooms:
 		var g := r.grow(1)
@@ -1256,6 +1341,12 @@ func _build_hud() -> void:
 	_purse_label.add_theme_font_size_override("font_size", 20)
 	_purse_label.add_theme_color_override("font_color", ink)
 	purse.add_child(_purse_label)
+	# Minimap in the top-right corner of the map, shown on big floors.
+	_minimap = Control.new()
+	_minimap.mouse_filter = Control.MOUSE_FILTER_IGNORE  # clicks go through to the map
+	_minimap.visible = false
+	_minimap.draw.connect(_draw_minimap)
+	layer.add_child(_minimap)
 	_level_ui = LevelUpUI.new()
 	_level_ui.card_chosen.connect(_on_card_chosen)
 	add_child(_level_ui)
@@ -1282,7 +1373,7 @@ func _refresh_hud() -> void:
 		for c in Cards.POOL:
 			if c.id == id and c.type == "passive":
 				passive_txt.append("%s x%d" % [c.name, player.card_stacks[id]])
-	var where := "Your base   Wood %d" % wood if in_base() else "Depth %d   Turn %d" % [depth, turn]
+	var where := "Your base   Wood %d" % wood if in_base() else "Depth %d%s   Turn %d" % [depth, " (big floor)" if is_big_floor() else "", turn]
 	var foes := ""
 	if not in_base():
 		var boss = _boss()

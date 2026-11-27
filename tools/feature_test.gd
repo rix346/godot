@@ -5,8 +5,8 @@ extends SceneTree
 # the portal), the rules for weapon offers, the stairs heal, coins, the shop
 # and its reroll, Night Vision, Break Wall, the enemy cap, mix and elites,
 # boss floors and each of the Cow's attacks, double melee damage, natural
-# healing and the Cow's arrow resistance, and prints FAIL for anything that's
-# broken.
+# healing, the Cow's arrow resistance and big floors (their size, rooms,
+# enemies, camera and minimap), and prints FAIL for anything that's broken.
 const Base := preload("res://scripts/base.gd")
 const Cards := preload("res://scripts/cards.gd")
 const Enemy := preload("res://scripts/enemy.gd")
@@ -39,12 +39,14 @@ func card(id: String) -> Dictionary:
 
 func _initialize():
 	var main = load("res://scenes/main.tscn").instantiate()
+	main.big_floor_chance = 0.0  # normal floors, unless a check asks for a big one
 	root.add_child(main)
 	await process_frame
 	check_base_rules(main)
 	check_rules(main)
 	check_depth_rules(main)
 	check_combat_rules(main)
+	await check_big_floor_rules(main)
 
 	main.depth = 3
 	main._new_floor()
@@ -542,3 +544,89 @@ func check_combat_rules(main) -> void:
 	check(player.hp == 50 + 3 + 30 / player.regen_every, "Second Wind stacks with natural healing (%d)" % player.hp)
 	player.equip({})
 	main.state = main.State.PLAYER_TURN
+
+
+## From depth 2 some floors are big: 4 screens, with more rooms and twice the
+## enemies, a camera that follows you and a minimap.
+func check_big_floor_rules(main) -> void:
+	var player = main.player
+	main.state = main.State.PLAYER_TURN
+	player.night_vision = false  # from check_rules; it would light up the whole floor
+	main.big_floor_chance = 1.0
+	for d in [0, 1, 5]:
+		main.depth = d
+		main._new_floor()
+		check(not main.is_big_floor() and main.map_w == main.W and main.map_h == main.H, "depth %d is never a big floor" % d)
+		check(not main._minimap.visible, "no minimap on depth %d" % d)
+		player.place(Vector2i(main.W - 2, main.H - 2))
+		main._aim_camera(true)
+		check(main.get_global_transform_with_canvas().origin == Vector2.ZERO, "the camera doesn't move on depth %d" % d)
+
+	main.depth = 2
+	main._new_floor()
+	check(main.is_big_floor() and Vector2i(main.map_w, main.map_h) == main.BIG_FLOOR_SIZE, "a floor from depth 2 can be big")
+	check(main.enemies.size() == mini(3 + 2 * 2, main.MAX_ENEMIES) * main.BIG_FLOOR_ENEMIES, "a big floor has twice the enemies (%d)" % main.enemies.size())
+	check(main.rooms.size() > main.MAX_ROOMS, "a big floor has more rooms (%d)" % main.rooms.size())
+	check(main.astar.region == Rect2i(0, 0, main.map_w, main.map_h), "pathfinding covers the whole big floor")
+	check(main.floor_cells.keys().all(func(c): return c.x > 0 and c.y > 0 and c.x < main.map_w - 1 and c.y < main.map_h - 1), "a big floor has walls all around")
+	var reached := {player.grid_pos: true}
+	var todo := [player.grid_pos]
+	while not todo.is_empty():
+		var c: Vector2i = todo.pop_back()
+		for dir in main.DIRS:
+			if main.floor_cells.has(c + dir) and not reached.has(c + dir):
+				reached[c + dir] = true
+				todo.append(c + dir)
+	check(reached.size() == main.floor_cells.size(), "every tile of a big floor can be reached (%d of %d)" % [reached.size(), main.floor_cells.size()])
+	check(main._minimap.visible, "a big floor has a minimap")
+	main._refresh_hud()
+	check(main._hud.text.begins_with("Depth 2 (big floor)"), "the HUD says it's a big floor")
+
+	# The camera keeps you in the middle of the map above the bar, and stops
+	# at the edges, where the corner tiles fill the corner of the screen.
+	var middle := Vector2(main.W * main.TILE, main.H * main.TILE) / 2  # (480, 288)
+	var half_tile := Vector2(main.TILE, main.TILE) / 2
+	for spot in [[Vector2i(main.map_w / 2, main.map_h / 2), middle],
+			[Vector2i(1, 1), Vector2(main.TILE, main.TILE) + half_tile],
+			[Vector2i(main.map_w - 2, main.map_h - 2), Vector2(main.W - 2, main.H - 2) * main.TILE + half_tile]]:
+		player.place(spot[0])
+		main._aim_camera(true)
+		var on_screen: Vector2 = main.get_global_transform_with_canvas() * (Vector2(player.grid_pos * main.TILE) + half_tile)
+		check(on_screen.is_equal_approx(spot[1]), "standing on %s you're drawn at %s on screen (at %s)" % [spot[0], spot[1], on_screen])
+
+	# Coins flying to the coin counter start where their tile is on screen.
+	player.place(Vector2i(main.map_w / 2, main.map_h / 2))
+	main._aim_camera(true)
+	if main._coin_tex:
+		main._fly_coin(player.grid_pos)
+		var coin = main._hud_layer.get_child(main._hud_layer.get_child_count() - 1)
+		check(coin.position.is_equal_approx(middle), "a flying coin starts on screen (%s)" % coin.position)
+
+	# Once the floor is clear, the stairs and the shopkeeper are marked on the
+	# map even where you haven't been. Normal floors don't do that.
+	for e in main.enemies.duplicate():
+		main.enemies.erase(e)
+		e.free()
+	main.seen_cells.clear()
+	main.floors_without_shop = 2  # the next cleared floor always gets a shop
+	main._floor_cleared()
+	check(main.seen_cells.has(main.stairs), "the stairs are marked on a big floor")
+	check(main.shop.x >= 0 and main.seen_cells.has(main.shop), "the shopkeeper is marked on a big floor")
+	await process_frame  # draw the big floor and its minimap once
+	main.big_floor_chance = 0.0
+	main.depth = 3
+	main._new_floor()
+	for e in main.enemies.duplicate():
+		main.enemies.erase(e)
+		e.free()
+	main.seen_cells.clear()
+	main.floors_without_shop = 2
+	main._floor_cleared()
+	check(not main.seen_cells.has(main.stairs) and not main.seen_cells.has(main.shop), "a normal floor doesn't mark the stairs or the shopkeeper")
+	main.big_floor_chance = 1.0
+
+	# Deep big floors get twice the enemy cap.
+	main.depth = 12
+	main._new_floor()
+	check(main.enemies.size() == main.MAX_ENEMIES * main.BIG_FLOOR_ENEMIES, "a deep big floor has %d enemies (%d)" % [main.MAX_ENEMIES * main.BIG_FLOOR_ENEMIES, main.enemies.size()])
+	main.big_floor_chance = 0.0
