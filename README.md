@@ -233,7 +233,7 @@ Skills go in your skill bar (up to **3**) and are used with keys **1-3**. Using 
 | Mend | Rare | 10 | Restores 40% of max HP |
 | Stone Skin | Rare | 9 | Blocks all damage for the next 2 enemy turns |
 | Chain Lightning | Epic | 6 | Zaps the nearest enemy, then jumps to 2 more nearby |
-| Break Wall | Legendary | 4 | Smashes a wall next to you into floor, making a new path. Press its key, then a direction (any other key cancels). The map edge and the 4 corner tiles around each room can't break |
+| Break Wall | Legendary | 4 | Smashes a wall next to you into floor, making a new path. Press its key, then a direction (any other key cancels). Only the wall around the edge of the map can't break |
 
 ---
 

@@ -55,7 +55,7 @@ const POOL := [
 	{id = "chain_lightning", name = "Chain Lightning", type = "skill", rarity = "epic", cooldown = 6, max_stacks = 3,
 		desc = "Zap the nearest enemy, then jump to 2 more nearby, for attack damage each."},
 	{id = "break_wall", name = "Break Wall", type = "skill", rarity = "legendary", cooldown = 4, max_stacks = 3,
-		desc = "Smash a wall next to you into floor to make a new path. Room corners and the map edge can't break."},
+		desc = "Smash a wall next to you into floor to make a new path. The map edge can't break."},
 	# Weapons: one equipped at a time, picking another replaces it. Icon is
 	# art/weapon_<id>.png. Optional keys change the basic attack (see main.gd
 	# _player_attack): atk, crit, hits + hit_mult, reach, pierce, sweep,

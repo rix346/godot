@@ -965,16 +965,10 @@ func _aim_break_wall(key: int) -> bool:
 	return false
 
 
-## The map's outer wall and the 4 corner tiles around every room can't break,
-## and neither can the base's trees, water and campfire.
+## Every wall can break except the map's outer wall, so you can't leave the
+## map. In the base, trees, water and the campfire can't break either.
 func _can_break(cell: Vector2i) -> bool:
-	if cell.x <= 0 or cell.y <= 0 or cell.x >= map_w - 1 or cell.y >= map_h - 1 or base_props.has(cell):
-		return false
-	for r in rooms:
-		var g := r.grow(1)
-		if cell in [g.position, Vector2i(g.end.x - 1, g.position.y), Vector2i(g.position.x, g.end.y - 1), g.end - Vector2i.ONE]:
-			return false
-	return true
+	return cell.x > 0 and cell.y > 0 and cell.x < map_w - 1 and cell.y < map_h - 1 and not base_props.has(cell)
 
 
 ## A few bits of stone that burst out of a smashed wall (or wood chips, in

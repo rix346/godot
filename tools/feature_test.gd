@@ -269,7 +269,7 @@ func check_rules(main) -> void:
 	main._shop_ui._close()
 	check(main.state == main.State.PLAYER_TURN, "leaving the shop")
 
-	# Break Wall smashes a wall next to you, but not the outer wall or room corners.
+	# Break Wall smashes any wall next to you, except the map's outer wall.
 	var bw := card("break_wall")
 	player.skills.clear()
 	for c in Cards.POOL:
@@ -277,7 +277,12 @@ func check_rules(main) -> void:
 			player.card_stacks.erase(c.id)
 	main._gain_card(bw)
 	check(not main._can_break(Vector2i(0, 5)), "outer wall is unbreakable")
-	check(not main._can_break(main.rooms[0].grow(1).position), "room corner is unbreakable")
+	var inside_walls := []
+	for x in range(1, main.map_w - 1):
+		for y in range(1, main.map_h - 1):
+			if not main.floor_cells.has(Vector2i(x, y)):
+				inside_walls.append(Vector2i(x, y))
+	check(inside_walls.all(func(c): return main._can_break(c)), "every wall inside the map can break, room corners too")
 	var target := Vector2i(-1, -1)
 	for c in main.floor_cells.keys():
 		for d in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
