@@ -21,6 +21,10 @@ func _initialize():
 			elif r < 0.6: main._shop_ui._try_reroll()
 			else: main._shop_ui._close()
 			continue
+		if main.state == main.State.WELL:
+			if randf() < 0.5: main._well_ui._pick(randi() % main._well_ui._cards.size())
+			else: main._well_ui._close()
+			continue
 		var ev = InputEventKey.new(); ev.pressed = true
 		# bias toward nearest enemy / stairs
 		ev.keycode = keys.pick_random()
@@ -31,7 +35,7 @@ func _initialize():
 				var d = p[1] - main.player.grid_pos
 				ev.keycode = {Vector2i.UP: KEY_UP, Vector2i.DOWN: KEY_DOWN, Vector2i.LEFT: KEY_LEFT, Vector2i.RIGHT: KEY_RIGHT}[d]
 		main._unhandled_input(ev)
-	print("turn ", main.turn, " depth ", main.depth, " lvl ", main.player.level, " picks ", picks, " hp ", main.player.hp, "/", main.player.max_hp, " coins ", main.player.coins, " stacks ", main.player.card_stacks)
+	print("turn ", main.turn, " depth ", main.depth, " lvl ", main.player.level, " picks ", picks, " hp ", main.player.hp, "/", main.player.max_hp, " coins ", main.player.coins, " wishes ", main.wishes, " stacks ", main.player.card_stacks)
 	print(main._hud.text)
 	DirAccess.remove_absolute(main.base_save_path)
 	quit()

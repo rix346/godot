@@ -5,6 +5,7 @@ signal card_chosen(card: Dictionary)
 
 const Cards := preload("res://scripts/cards.gd")
 const CARD_SIZE := Vector2(192, 300)  # card art is 64x100, drawn at 3x
+const GOLD := Color(1.0, 0.84, 0.3)
 
 var _cards: Array = []
 var _row: HBoxContainer
@@ -50,8 +51,8 @@ func show_choices(player, cards: Array) -> void:
 
 
 ## One card: the art/card_<rarity>.png frame scaled up, name on top, then
-## rarity/type, description, and the key to press at the bottom. `s` shrinks
-## the whole card.
+## rarity/type (or the card's `subtitle`), description, and the key to press
+## at the bottom. `s` shrinks the whole card.
 func _make_card(i: int, card: Dictionary, player, s := 1.0, show_key := true) -> Button:
 	var b := Button.new()
 	b.custom_minimum_size = CARD_SIZE * s
@@ -84,7 +85,8 @@ func _make_card(i: int, card: Dictionary, player, s := 1.0, show_key := true) ->
 
 	var ink := Color(0.12, 0.12, 0.18)
 	box.add_child(_label(card.name, roundi(22 * s), ink))
-	box.add_child(_label("%s %s" % [card.rarity.to_upper(), card.type.to_upper()], roundi(11 * s), ink.lightened(0.35)))
+	var subtitle: String = card.get("subtitle", "%s %s" % [card.rarity.to_upper(), card.type.to_upper()])
+	box.add_child(_label(subtitle, roundi(11 * s), ink.lightened(0.35)))
 	var icon_path := "res://art/%s_%s.png" % [card.type, card.id]
 	if ResourceLoader.exists(icon_path):
 		var icon := TextureRect.new()
@@ -112,6 +114,20 @@ func _label(text: String, font_size: int, col: Color) -> Label:
 	l.add_theme_font_size_override("font_size", font_size)
 	l.add_theme_color_override("font_color", col)
 	return l
+
+
+## A plain text button under the cards (Leave, Reroll), gold when hovered.
+func _menu_button(text: String, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.flat = true
+	b.add_theme_font_size_override("font_size", 22)
+	b.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85))
+	for state in ["font_hover_color", "font_focus_color", "font_pressed_color", "font_hover_pressed_color"]:
+		b.add_theme_color_override(state, GOLD)
+	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	b.pressed.connect(on_press)
+	return b
 
 
 ## Fallback look when there is no card_<rarity>.png for this rarity.

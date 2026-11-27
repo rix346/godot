@@ -14,6 +14,8 @@ Anything without a file is drawn as a coloured square with a letter.
 | `hud.png` | bottom HUD background (256x64, drawn as a 9-patch at 2x) |
 | `coin.png` | coins: drawn at half size (16x16) on the floor, full size in the HUD and shop |
 | `shopkeeper.png` | the shopkeeper who sells cards (until it exists, a purple square with a `$`) |
+| `well.png` | the wishing well, drawn on top of the floor so transparency works, and darker once you've made your wish (until it exists, a ring of stones around blue water) |
+| `wish_challenge.png`, `wish_boss_madness.png`, `wish_loud_steps.png` | icons on the wish cards at the well (32x32, drawn at 2x, like the weapon icons) |
 | `base_floor.png`, `base_wall.png` | ground and walls in your base (until they exist, green grass and brown walls) |
 | `tree.png`, `campfire.png` | trees and the campfire in your base, drawn on top of `base_floor.png` (so transparency works) |
 | `water.png` | the pond in your base |
