@@ -6,8 +6,9 @@ extends SceneTree
 # and its reroll, Night Vision, Break Wall, the enemy cap, mix and elites,
 # boss floors and each of the Cow's attacks, double melee damage, natural
 # healing, the Cow's arrow resistance, big floors (their size, rooms,
-# enemies, camera and minimap) and the wishing well with each of its wishes,
-# and prints FAIL for anything that's broken.
+# enemies, camera and minimap), the wishing well with each of its wishes and
+# the light hook up to your base and back, and prints FAIL for anything
+# that's broken.
 const Base := preload("res://scripts/base.gd")
 const Cards := preload("res://scripts/cards.gd")
 const Enemy := preload("res://scripts/enemy.gd")
@@ -61,6 +62,7 @@ func _initialize():
 	var main = load("res://scenes/main.tscn").instantiate()
 	main.big_floor_chance = 0.0  # normal floors, unless a check asks for a big one
 	main.well_chance = 0.0  # and no wishing wells
+	main.hook_chance = 0.0  # or light hooks, except on boss floors
 	root.add_child(main)
 	await process_frame
 	check_base_rules(main)
@@ -69,6 +71,7 @@ func _initialize():
 	check_combat_rules(main)
 	await check_big_floor_rules(main)
 	await check_well_rules(main)
+	await check_hook_rules(main)
 
 	main.depth = 3
 	main._new_floor()
@@ -104,6 +107,7 @@ func _initialize():
 	print("skills: ", main.player.skills.map(func(s): return s.name), " used: ", used.keys())
 	print("depth ", main.depth, " turn ", main.turn, " hp ", main.player.hp, " coins ", main.player.coins)
 	print("all rule checks passed" if failures == 0 else "%d rule checks FAILED" % failures)
+	DirAccess.remove_absolute(main.base_save_path)  # in case the random turns took a light hook home and chopped a tree
 	quit()
 
 
@@ -878,4 +882,135 @@ func check_well_rules(main) -> void:
 	main.big_floor_chance = 0.0
 	main.well_chance = 0.0
 	main.wishes.clear()
+	main.state = main.State.PLAYER_TURN
+
+
+## A light hook takes you up to your base in the middle of a run, and the
+## portal takes you back down to the next depth, with everything you had.
+func check_hook_rules(main) -> void:
+	var player = main.player
+	main.state = main.State.PLAYER_TURN
+	player.pending_levels = 0  # left over from earlier checks: a level-up screen would stop the steps below
+	main.big_floor_chance = 0.0
+	main.well_chance = 0.0
+	player.night_vision = false
+
+	# Never on depth 1, even at a 100% chance.
+	main.hook_chance = 1.0
+	main.depth = 1
+	main._new_floor()
+	clear_enemies(main)
+	main._floor_cleared()
+	check(main.hook.x < 0, "no light hook on depth 1")
+
+	# From depth 2 it hangs in an open spot, not right next to the stairs, the
+	# shopkeeper or the well, and you can step on it.
+	main.depth = 3
+	main._new_floor()
+	check(main.hook.x < 0, "a floor has no light hook until it's cleared")
+	clear_enemies(main)
+	main.floors_without_shop = 2  # a shopkeeper and a well too
+	main.well_chance = 1.0
+	main._floor_cleared()
+	var hook: Vector2i = main.hook
+	check(hook.x >= 0 and not main.astar.is_point_solid(hook), "a cleared floor can get a light hook (%s)" % hook)
+	check(main.shop.x >= 0 and main.well.x >= 0, "the shopkeeper and the well are there too")
+	check(main._cheb(hook, main.stairs) > 1 and main._cheb(hook, main.shop) > 1 and main._cheb(hook, main.well) > 1, "the hook isn't right next to the stairs, the shopkeeper or the well")
+	for x in range(hook.x - 1, hook.x + 2):
+		for y in range(hook.y - 1, hook.y + 2):
+			check(main.floor_cells.has(Vector2i(x, y)), "the hook has floor all around")
+	await process_frame  # draw the hook once
+
+	# In a 5x5 room with the stairs, the shopkeeper or the well in the middle,
+	# there's no room for a hook.
+	var keep: Array = [main.floor_cells, main.stairs, main.shop, main.well]
+	var room := {}
+	for x in range(1, 6):
+		for y in range(1, 6):
+			room[Vector2i(x, y)] = true
+	main.floor_cells = room
+	player.place(Vector2i(1, 1))
+	for middle in ["stairs", "shop", "well"]:
+		for what in ["stairs", "shop", "well"]:
+			main.set(what, Vector2i(3, 3) if what == middle else Vector2i(-1, -1))
+		main.hook = Vector2i(-1, -1)
+		main._maybe_spawn_hook()
+		check(main.hook.x < 0, "no hook right next to the %s (%s)" % [middle, main.hook])
+	main.floor_cells = keep[0]
+	main.stairs = keep[1]
+	main.shop = keep[2]
+	main.well = keep[3]
+
+	# At a 0% chance there's none, but a cleared boss floor always gets one.
+	main.hook_chance = 0.0
+	main.well_chance = 0.0
+	main._new_floor()
+	clear_enemies(main)
+	main._floor_cleared()
+	check(main.hook.x < 0, "with a 0% chance no hook appears")
+	main.depth = 5
+	main._new_floor()
+	clear_enemies(main)
+	main._floor_cleared()
+	check(main.is_boss_floor() and main.hook.x >= 0, "a cleared boss floor always gets a light hook")
+
+	# Stepping on it takes you up to your base, with everything you had.
+	main.wishes = {"challenge": 1}
+	Cards.apply(player, card("tough_hide"))
+	player.equip(card("sword"))
+	player.coins = 17
+	player.poison_turns = 2
+	var max_hp: int = player.max_hp
+	player.hp = max_hp / 2
+	var level: int = player.level
+	var stacks: Dictionary = player.card_stacks.duplicate()
+	var skills: Array = player.skills.map(func(s): return s.id)
+	var turn_before: int = main.turn
+	hook = main.hook
+	player.place(hook + Vector2i.LEFT)
+	press(main, KEY_RIGHT)
+	var start := Vector2i(-1, -1)
+	for y in Base.LAYOUT.size():
+		var x: int = Base.LAYOUT[y].find("@")
+		if x >= 0:
+			start = Vector2i(x, y)
+	check(main.in_base() and main.return_depth == 6, "the light hook takes you up to your base (depth %d, back to %d)" % [main.depth, main.return_depth])
+	check(player.grid_pos == start and main.enemies.is_empty() and main.stairs.x >= 0, "you arrive on the @, with the portal there and no enemies")
+	check(player.level == level and player.card_stacks == stacks and player.weapon.get("id", "") == "sword" and player.skills.map(func(s): return s.id) == skills, "you keep your level, cards, weapon and skills")
+	check(player.coins == 17 and main._wish("challenge") == 1 and player.max_hp == max_hp, "you keep your coins, wishes and max HP")
+	check(player.hp >= max_hp / 2 and player.hp <= max_hp / 2 + 1, "the hook doesn't heal you (%d of %d)" % [player.hp, max_hp])
+	check(player.poison_turns == 0, "poison is gone at home")
+	check(main.turn == turn_before + 1, "grabbing the hook uses your step (turn %d)" % main.turn)
+	main._refresh_hud()
+	check(main._hud.text.begins_with("Your base   Wood %d   Portal to depth 6" % main.wood), "the bar says where the portal goes")
+	check(main.log_lines.back() == "Walk into the portal to go back down to depth 6.", "the log says how to get back (%s)" % main.log_lines.back())
+
+	# The portal takes you back down to the next depth, and the run goes on.
+	player.place(main.stairs + Vector2i.LEFT)
+	turn_before = main.turn
+	var hp_before: int = player.hp
+	press(main, KEY_RIGHT)
+	check(main.depth == 6 and not main.in_base() and main.return_depth == 0, "the portal takes you back down to depth 6 (%d)" % main.depth)
+	check(main.turn == turn_before + 1, "the turns keep counting (turn %d)" % main.turn)
+	check(not main.enemies.is_empty() and player.coins == 17 and main._wish("challenge") == 1, "depth 6 has enemies, and you still have your coins and wishes")
+	check(player.hp >= mini(max_hp, hp_before + ceili(max_hp * main.DESCEND_HEAL)), "the way down heals like the stairs (%d)" % player.hp)
+	check(main.log_lines.has("You step through the portal to depth 6."), "the log says where you are")
+	main._descend()
+	check(main.depth == 7, "the stairs go on from there")
+
+	# On a big floor the hook is marked on the map and minimap once the floor is clear.
+	main.big_floor_chance = 1.0
+	main.hook_chance = 1.0
+	main.depth = 3
+	main._new_floor()
+	clear_enemies(main)
+	main.seen_cells.clear()
+	main._floor_cleared()
+	check(main.hook.x >= 0 and main.seen_cells.has(main.hook), "the light hook is marked on a big floor")
+	await process_frame  # draw the minimap with the hook on it
+	main.big_floor_chance = 0.0
+	main.hook_chance = 0.0
+	main.wishes.clear()
+	player.coins = 0
+	player.equip({})
 	main.state = main.State.PLAYER_TURN

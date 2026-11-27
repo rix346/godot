@@ -3,7 +3,8 @@ extends Node2D
 ##
 ## Turn order: the player acts (move, bump-attack, wait, or skill), then every
 ## enemy acts once in list order. Level-ups are resolved after the round.
-## Depth 0 is your base (see base.gd): every run starts there.
+## Depth 0 is your base (see base.gd): every run starts there, and a light
+## hook can take you back up to it in the middle of a run.
 
 const Base := preload("res://scripts/base.gd")
 const Unit := preload("res://scripts/unit.gd")
@@ -42,6 +43,8 @@ const SHOP_CHANCE := 0.4  # chance a cleared floor gets a shopkeeper (from depth
 const SHOP_FIRST_DEPTH := 2
 const WELL_CHANCE := 0.25  # chance a cleared floor gets a wishing well (from depth 2)
 const WELL_FIRST_DEPTH := 2
+const HOOK_CHANCE := 0.2  # chance a cleared floor gets a light hook (from depth 2); a cleared boss floor always does
+const HOOK_FIRST_DEPTH := 2
 const COIN_SIZE := 16  # coins on the ground are drawn at half a tile
 const GOLD := Color(1.0, 0.84, 0.3)  # coins, the shop sign, and the Break Wall and building outlines
 const WOOD_COLOR := Color(0.85, 0.62, 0.36)  # the "+2 wood" you see when a tree comes down
@@ -74,6 +77,9 @@ var well := Vector2i(-1, -1)  # the wishing well's tile, (-1, -1) if this floor 
 var well_used := false  # one wish per well
 var well_chance := WELL_CHANCE  # the tests set 0 or 1 to choose
 var wishes := {}  # wish id -> times made this run (see wishes.gd)
+var hook := Vector2i(-1, -1)  # the light hook's tile, (-1, -1) if this floor has none
+var hook_chance := HOOK_CHANCE  # the tests set 0 or 1 to choose
+var return_depth := 0  # in the base during a run: the depth the portal takes you back to (0 when a new run starts)
 var breaking := false  # Break Wall is waiting for a direction
 var last_step := Vector2i.ZERO  # your move this turn (zero if you didn't move); the Cow aims its charge with it
 var base_props := {}  # in the base: Vector2i -> "tree", "water" or "campfire"
@@ -92,6 +98,7 @@ var _stairs_tex: Texture2D
 var _coin_tex: Texture2D
 var _shop_tex: Texture2D
 var _well_tex: Texture2D
+var _hook_tex: Texture2D
 var _hud_layer: CanvasLayer
 var _purse: TextureRect  # HUD coin icon; Coin Magnet coins fly here
 var _purse_label: Label
@@ -112,6 +119,7 @@ func _ready() -> void:
 	_coin_tex = _load_art("coin")
 	_shop_tex = _load_art("shopkeeper")
 	_well_tex = _load_art("well")
+	_hook_tex = _load_art("light_hook")
 	for prop in Base.PROPS.values():
 		_prop_tex[prop] = _load_art(prop)
 	_build_hud()
@@ -149,6 +157,7 @@ func _new_floor() -> void:
 	shop_stock = []
 	well = Vector2i(-1, -1)
 	well_used = false
+	hook = Vector2i(-1, -1)
 	breaking = false
 	seen_cells.clear()
 	base_props.clear()
@@ -447,6 +456,8 @@ func _draw() -> void:
 			_draw_prop(base_props[c], c)
 	if well.x >= 0 and seen_cells.has(well):
 		_draw_well()
+	if hook.x >= 0 and seen_cells.has(hook):
+		_draw_hook()
 	if stairs.x >= 0 and seen_cells.has(stairs):
 		if _stairs_tex:
 			draw_texture_rect(_stairs_tex, Rect2(Vector2(stairs * TILE), Vector2(TILE, TILE)), false)
@@ -512,6 +523,24 @@ func _draw_well() -> void:
 		draw_arc(mid + Vector2(-1, -1), 4, PI, PI * 1.5, 8, Color(0.75, 0.88, 1), 2)  # a glint on the water
 
 
+## The light hook: art/light_hook.png if it exists, else a rope of light
+## coming down from above, with a glowing hook at the end.
+func _draw_hook() -> void:
+	var rect := Rect2(Vector2(hook * TILE), Vector2(TILE, TILE))
+	if _hook_tex:
+		draw_texture_rect(_hook_tex, rect, false)
+		return
+	var mid := rect.get_center() + Vector2(3, 0)
+	draw_circle(mid + Vector2(-5, 6), 12, Color(1, 1, 0.7, 0.3))  # its glow
+	# A dark outline first, then the light on top: the rope, the hook's curve and its point.
+	for pass_color in [[Color(0.3, 0.2, 0.05), 6], [Color(1, 0.97, 0.72), 3]]:
+		var col: Color = pass_color[0]
+		var width: float = pass_color[1]
+		draw_line(Vector2(mid.x, rect.position.y), mid + Vector2(0, 6), col, width)
+		draw_arc(mid + Vector2(-5, 6), 5, 0, PI, 12, col, width)
+		draw_line(mid + Vector2(-10, 6), mid + Vector2(-10, 1), col, width)
+
+
 ## Trees, water and the campfire in the base: their art if it exists, else
 ## simple shapes on the grass.
 func _draw_prop(prop: String, c: Vector2i) -> void:
@@ -545,15 +574,15 @@ func _draw_danger_frames() -> void:
 
 
 ## The minimap on big floors: the floor you've explored, the stairs, the
-## shopkeeper and the wishing well once they're on your map (see
-## _floor_cleared), and you.
+## shopkeeper, the wishing well and the light hook once they're on your map
+## (see _floor_cleared), and you.
 func _draw_minimap() -> void:
 	var px := MINIMAP_TILE
 	_minimap.draw_rect(Rect2(Vector2.ZERO, _minimap.size), Color(0, 0, 0, 0.6))
 	for c in seen_cells:
 		if floor_cells.has(c):
 			_minimap.draw_rect(Rect2(Vector2(c * px), Vector2(px, px)), Color(0.6, 0.6, 0.68))
-	for mark in [[stairs, Color(0.95, 0.8, 0.2)], [shop, Color(0.75, 0.5, 1)], [well, Color(0.3, 0.8, 1)]]:
+	for mark in [[stairs, Color(0.95, 0.8, 0.2)], [shop, Color(0.75, 0.5, 1)], [well, Color(0.3, 0.8, 1)], [hook, Color(0.5, 1, 0.55)]]:
 		var c: Vector2i = mark[0]
 		if c.x >= 0 and seen_cells.has(c):
 			_minimap.draw_rect(Rect2(Vector2(c * px) - Vector2(px, px) / 2, Vector2(px, px) * 2), mark[1])
@@ -660,25 +689,32 @@ func _player_step(dir: Vector2i) -> bool:
 	_pick_up_coins(target)
 	if target == stairs:
 		_descend()
+	elif target == hook:
+		_hook_up()
 	else:
 		_shoot()
 	return true
 
 
 ## Next floor, and you get DESCEND_HEAL of your max HP back on the way down.
-## From the base, the portal leads to depth 1.
+## From the base, the portal leads to depth 1, or back to your run if a
+## light hook brought you up.
 func _descend() -> void:
 	var from_base := in_base()
-	depth += 1
-	if from_base:
-		turn = 0  # this step ends turn 0, so the dungeon starts on turn 1
+	if from_base and return_depth > 0:
+		depth = return_depth
+	else:
+		depth += 1
+		if from_base:
+			turn = 0  # a new run: this step ends turn 0, so the dungeon starts on turn 1
+	return_depth = 0
 	_new_floor()
 	var before := player.hp
 	player.heal(ceili(player.max_hp * DESCEND_HEAL))
 	var healed := player.hp - before
 	last_step = Vector2i.ZERO
 	if from_base:
-		_log("You step through the portal to depth 1.")
+		_log("You step through the portal to depth %d." % depth)
 	else:
 		_log("You descend to depth %d%s." % [depth, " and recover %d HP" % healed if healed > 0 else ""])
 	var bosses := enemies.filter(func(e): return e.has_method("boss_turn"))
@@ -910,17 +946,18 @@ func _fly_coin(cell: Vector2i, delay := 0.0) -> void:
 	tw.tween_callback(coin.queue_free)
 
 
-## Called when the last enemy dies: the stairs appear, and sometimes a shop
-## and a wishing well. On a big floor they could be far off in the dark, so
-## they're marked on the map and the minimap right away.
+## Called when the last enemy dies: the stairs appear, and sometimes a shop,
+## a wishing well and a light hook. On a big floor they could be far off in
+## the dark, so they're marked on the map and the minimap right away.
 func _floor_cleared() -> void:
 	var cells := floor_cells.keys().filter(func(c): return _dist(c, player.grid_pos) >= 5 and not coins.has(c))
 	stairs = cells.pick_random() if not cells.is_empty() else player.grid_pos
 	_log("The floor is clear. Stairs (>) appeared!" + (" They're marked on the minimap." if is_big_floor() else ""))
 	_maybe_spawn_shop()
 	_maybe_spawn_well()
+	_maybe_spawn_hook()
 	if is_big_floor():
-		for c in [stairs, shop, well]:
+		for c in [stairs, shop, well, hook]:
 			if c.x >= 0:
 				seen_cells[c] = true
 	queue_redraw()
@@ -1033,6 +1070,37 @@ func wish_count() -> int:
 func _on_shop_closed() -> void:
 	state = State.PLAYER_TURN
 	_refresh_hud()
+
+
+# --- Light hook -----------------------------------------------------------------
+
+## From depth 2 a cleared floor gets a light hook HOOK_CHANCE of the time,
+## and a cleared boss floor always does. It hangs in an open spot, not right
+## next to the stairs, the shopkeeper or the well, so you don't grab it by
+## mistake.
+func _maybe_spawn_hook() -> void:
+	if depth < HOOK_FIRST_DEPTH or (not is_boss_floor() and randf() >= hook_chance):
+		return
+	var spots := floor_cells.keys().filter(func(c): return _good_shop_spot(c) \
+		and _cheb(c, stairs) > 1 and _cheb(c, shop) > 1 and _cheb(c, well) > 1)
+	if spots.is_empty():
+		return
+	hook = spots.pick_random()
+	_log("A light hook appeared! Step on it to go up to your base for a while.")
+
+
+## Stepping on the light hook pulls you up to your base in the middle of a
+## run. You keep everything (HP, level, cards, coins and wishes), and the
+## portal takes you back down to the next depth.
+func _hook_up() -> void:
+	return_depth = depth + 1
+	depth = 0
+	player.poison_turns = 0  # nothing can hurt you at home
+	player.queue_redraw()
+	_new_floor()
+	last_step = Vector2i.ZERO
+	_log("The light hook pulls you up to your base. Your run waits for you.")
+	_log("Walk into the portal to go back down to depth %d." % return_depth)
 
 
 ## True when this key continues the _SEQ keys typed so far (no more than 3
@@ -1501,7 +1569,9 @@ func _refresh_hud() -> void:
 		for c in Cards.POOL:
 			if c.id == id and c.type == "passive":
 				passive_txt.append("%s x%d" % [c.name, player.card_stacks[id]])
-	var where := "Your base   Wood %d" % wood if in_base() else "Depth %d%s   Turn %d" % [depth, " (big floor)" if is_big_floor() else "", turn]
+	var where := "Depth %d%s   Turn %d" % [depth, " (big floor)" if is_big_floor() else "", turn]
+	if in_base():
+		where = "Your base   Wood %d" % wood + ("   Portal to depth %d" % return_depth if return_depth > 0 else "")
 	var wish_txt := []
 	for w in Wishes.POOL:
 		if _wish(w.id) > 0:
